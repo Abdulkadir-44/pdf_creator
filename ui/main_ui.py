@@ -1,0 +1,147 @@
+import customtkinter as ctk
+from unite_sec_ui import UniteSecmePenceresi
+from konu_sec_ui import KonuSecmePenceresi 
+
+ctk.set_appearance_mode("light")
+ctk.set_default_color_theme("green")
+
+BG_COLOR = "#f2f2f2"
+BTN_BG = "#4a90e2"
+BTN_FG = "#ffffff"
+
+class AnaUygulama(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+
+        self.title("Soru Otomasyon Sistemi")
+        self.geometry(f"{self.winfo_screenwidth()}x{self.winfo_screenheight()}+0+0")
+        self.resizable(False, False)
+        self.configure(bg=BG_COLOR)
+
+        # Tüm sayfaları tutacak bir ana container frame
+        self.container = ctk.CTkFrame(self, fg_color=BG_COLOR)
+        self.container.pack(side="top", fill="both", expand=True)
+        self.container.grid_rowconfigure(0, weight=1)
+        self.container.grid_columnconfigure(0, weight=1)
+
+        # Sayfaları depolayacağımız bir dictionary
+        self.frames = {}
+        
+        # Sabit sayfaları oluştur
+        self.init_frames()
+
+        # Başlangıç sayfasını göster
+        self.show_frame("AnaMenu")
+
+    def init_frames(self):
+        """Sabit frame'leri başlangıçta oluştur"""
+        # Ana Menü
+        self.frames["AnaMenu"] = AnaMenu(self.container, self)
+        self.frames["AnaMenu"].grid(row=0, column=0, sticky="nsew")
+        
+        # Ünite Seçme
+        self.frames["UniteSecme"] = UniteSecmePenceresi(self.container, self)
+        self.frames["UniteSecme"].grid(row=0, column=0, sticky="nsew")
+
+    def show_frame(self, frame_name, **kwargs):
+        """Frame'i göster"""
+        # Dinamik frame oluşturma (KonuSecme için)
+        if frame_name == "KonuSecme":
+            unite_klasor_yolu = kwargs.get('unite_klasor_yolu')
+            if unite_klasor_yolu:
+                # Eğer KonuSecme frame'i varsa güncelle, yoksa oluştur
+                if "KonuSecme" in self.frames:
+                    self.frames["KonuSecme"].destroy()
+                
+                self.frames["KonuSecme"] = KonuSecmePenceresi(self.container, self, unite_klasor_yolu)
+                self.frames["KonuSecme"].grid(row=0, column=0, sticky="nsew")
+        
+        # Frame'i en üste getir
+        if frame_name in self.frames:
+            self.frames[frame_name].tkraise()
+
+    def ana_menuye_don(self):
+        """Ana menüye dön"""
+        self.show_frame("AnaMenu")
+
+class AnaMenu(ctk.CTkFrame):
+    def __init__(self, parent, controller):
+        super().__init__(parent, fg_color=BG_COLOR)
+        
+        self.controller = controller
+        self.setup_ui()
+
+    def setup_ui(self):
+        btn_font = ctk.CTkFont(family="Segoe UI", size=12, weight="bold")
+        
+        # Ana frame
+        ana_frame = ctk.CTkFrame(self, fg_color=BG_COLOR)
+        ana_frame.pack(expand=True)
+
+        # Başlık
+        title_label = ctk.CTkLabel(
+            ana_frame,
+            text="🎯 Soru Otomasyon Sistemi",
+            font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"),
+            text_color="#2d3436"
+        )
+        title_label.pack(pady=30)
+
+        # Soru seç butonu
+        soru_sec_btn = ctk.CTkButton(
+            ana_frame,
+            text="✔ Soru Seç ve PDF Oluştur",
+            font=btn_font,
+            fg_color=BTN_BG,
+            text_color=BTN_FG,
+            hover_color="#357ABD",
+            width=300,
+            height=50,
+            command=self.soru_sec_ekranini_ac
+        )
+        soru_sec_btn.pack(pady=20)
+
+        # Klasör yönetim butonu
+        klasor_yonet_btn = ctk.CTkButton(
+            ana_frame,
+            text="🗂 Soru Yükle / Klasör Yönetimi",
+            font=btn_font,
+            fg_color=BTN_BG,
+            text_color=BTN_FG,
+            hover_color="#357ABD",
+            width=300,
+            height=50,
+            command=self.klasor_yonetimi_ekranini_ac
+        )
+        klasor_yonet_btn.pack(pady=10)
+
+    def soru_sec_ekranini_ac(self):
+        """Ünite seçme ekranını göster"""
+        self.controller.show_frame("UniteSecme")
+
+    def klasor_yonetimi_ekranini_ac(self):
+        """Klasör yönetimi ekranını göster (gelecekte implement edilecek)"""
+        # Geçici mesaj göster
+        temp_window = ctk.CTkToplevel(self.controller)
+        temp_window.title("Bilgi")
+        temp_window.geometry("300x150")
+        temp_window.resizable(False, False)
+        
+        label = ctk.CTkLabel(
+            temp_window,
+            text="Klasör Yönetimi\n(Yapım Aşamasında)",
+            font=ctk.CTkFont(family="Segoe UI", size=14),
+            text_color="black"
+        )
+        label.pack(pady=40)
+        
+        ok_btn = ctk.CTkButton(
+            temp_window,
+            text="Tamam",
+            command=temp_window.destroy
+        )
+        ok_btn.pack(pady=10)
+
+if __name__ == "__main__":
+    app = AnaUygulama()
+    app.mainloop()
