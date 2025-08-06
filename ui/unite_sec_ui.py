@@ -194,8 +194,9 @@ class UniteSecmePenceresi(ctk.CTkFrame):
         self.scroll_frame.update_idletasks()
 
 if __name__ == "__main__":
-    import tkinter as tk
-    root = tk.Tk()
+    # import tkinter as tk
+    # root = tk.Tk()
+    root = ctk.CTk()
     root.state('zoomed')
     app = UniteSecmePenceresi(root, None)
     root.mainloop()

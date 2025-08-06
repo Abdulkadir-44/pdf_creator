@@ -1,6 +1,6 @@
 import customtkinter as ctk
-from unite_sec_ui import UniteSecmePenceresi
-from konu_sec_ui import KonuSecmePenceresi 
+from ui.unite_sec_ui import UniteSecmePenceresi
+from ui.konu_sec_ui import KonuSecmePenceresi 
 
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("green")
@@ -9,7 +9,7 @@ BG_COLOR = "#f2f2f2"
 BTN_BG = "#4a90e2"
 BTN_FG = "#ffffff"
 
-class AnaUygulama(ctk.CTk):
+class AnaPencere(ctk.CTk):
     def __init__(self):
         super().__init__()
 
@@ -143,5 +143,5 @@ class AnaMenu(ctk.CTkFrame):
         ok_btn.pack(pady=10)
 
 if __name__ == "__main__":
-    app = AnaUygulama()
+    app = AnaPencere()
     app.mainloop()

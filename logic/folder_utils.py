@@ -3,6 +3,13 @@ import random
 
 # Soru havuzu ana klasörü (uygulama klasörüne göre değiştirilebilir)
 SORU_HAVUZU_YOLU = os.path.join(os.getcwd(), "soru_havuzu")
+print(f"DEBUG - SORU_HAVUZU_YOLU: {SORU_HAVUZU_YOLU}")
+
+# Klasör varlığını kontrol et ve kullanıcıya bilgi ver
+if not os.path.exists(SORU_HAVUZU_YOLU):
+    print(f"UYARI: {SORU_HAVUZU_YOLU} klasörü bulunamadı. Lütfen soru_havuzu klasörünün varlığını kontrol edin.")
+else:
+    print(f"Bilgi: {SORU_HAVUZU_YOLU} klasörü bulundu.")
 
 
 def get_topics():

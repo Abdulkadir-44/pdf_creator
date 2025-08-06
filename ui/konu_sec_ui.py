@@ -1,6 +1,7 @@
 import customtkinter as ctk
 import tkinter as tk
 import os
+import sys
 from PIL import Image, ImageTk
 import math
 from tkinter import filedialog
@@ -10,11 +11,13 @@ ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("green")
 
 class KonuSecmePenceresi(ctk.CTkFrame):
-    def __init__(self, parent, controller, unite_klasor_yolu):
+    def __init__(self, parent, controller, unite_klasor_yolu, on_questions_selected=None):
         super().__init__(parent, fg_color="transparent")
         self.controller = controller
         self.unite_klasor_yolu = unite_klasor_yolu
+        self.on_questions_selected = on_questions_selected
         self.secilen_gorseller = []
+        self.selected_questions = []  # Store selected question paths
         
         # UI'ı oluştur
         self.setup_ui()
@@ -103,6 +106,9 @@ class KonuSecmePenceresi(ctk.CTkFrame):
         )
         self.konu_menu.set("Konu seçin...")
         self.konu_menu.pack(pady=(0, 20), padx=40)
+        
+        # Input alanına tıklandığında dropdown'ı açmak için olay bağlama
+        self.konu_menu._entry.bind("<Button-1>", lambda e: self.konu_menu._open_dropdown_menu())
 
         # Zorluk Seçimi
         zorluk_label = ctk.CTkLabel(
@@ -126,29 +132,50 @@ class KonuSecmePenceresi(ctk.CTkFrame):
         )
         self.zorluk_menu.set("Zorluk seviyesi seçin...")
         self.zorluk_menu.pack(pady=(0, 20), padx=40)
+        
+        # Input alanına tıklandığında dropdown'ı açmak için olay bağlama
+        self.zorluk_menu._entry.bind("<Button-1>", lambda e: self.zorluk_menu._open_dropdown_menu())
 
         # Soru Sayısı Seçimi
         soru_label = ctk.CTkLabel(
-            self.form_frame, 
-            text="🔢 Soru Sayısı:",
-            font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
-            text_color="#495057"
+        self.form_frame, 
+        text="🔢 Soru Sayısı:",
+        font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
+        text_color="#495057"
         )
         soru_label.pack(pady=(10, 10), anchor="w", padx=40)
 
         self.soru_sayisi_var = tk.StringVar()
-        self.soru_menu = ctk.CTkComboBox(
-            self.form_frame,
-            variable=self.soru_sayisi_var,
-            values=["1 Soru", "2 Soru", "3 Soru", "5 Soru", "10 Soru"],
+    
+        # Giriş alanı ve spin butonları için frame
+        soru_frame = ctk.CTkFrame(self.form_frame, fg_color="transparent")
+        soru_frame.pack(pady=(0, 30), padx=40, fill="x")
+
+        # Giriş alanı
+        self.soru_entry = ctk.CTkEntry(
+            soru_frame,
+            textvariable=self.soru_sayisi_var,
             font=ctk.CTkFont(family="Segoe UI", size=14),
-            width=400,
+            width=100,
             height=40,
             corner_radius=10,
-            state="readonly"
+            placeholder_text="Sayı girin..."
         )
-        self.soru_menu.set("Soru sayısı seçin...")
-        self.soru_menu.pack(pady=(0, 30), padx=40)
+        self.soru_entry.pack(side="left")
+
+        # Hızlı seçim butonları
+        for num in [1, 2, 3, 5, 10]:
+            btn = ctk.CTkButton(
+                soru_frame,
+                text=str(num),
+                width=40,
+                height=35,
+                corner_radius=8,
+                fg_color="#6c757d",
+                hover_color="#5a6268",
+                command=lambda n=num: self.soru_sayisi_var.set(str(n))
+            )
+            btn.pack(side="left", padx=(10, 0))
 
         # Devam Et butonu
         devam_btn = ctk.CTkButton(
@@ -188,28 +215,47 @@ class KonuSecmePenceresi(ctk.CTkFrame):
         # Seçimleri al
         secilen_konu = self.konu_var.get()
         zorluk = self.zorluk_var.get()
-        soru_sayisi_text = self.soru_sayisi_var.get()
-        
+
         # Validasyon
-        if any("seçin" in var.get().lower() for var in [self.konu_var, self.zorluk_var, self.soru_sayisi_var]):
-            self.show_error("Lütfen tüm alanları seçin!")
+        if any("seçin" in var.get().lower() for var in [self.konu_var, self.zorluk_var]):
+            self.show_error("Lütfen konu ve zorluk seviyesini seçin!")
             return
-        
+
+        # Soru sayısı validasyonu
+        try:
+            soru_sayisi = int(self.soru_sayisi_var.get())
+            if soru_sayisi <= 0:
+                raise ValueError
+        except (ValueError, AttributeError):
+            self.show_error("Lütfen geçerli bir soru sayısı girin!")
+            return
+
         # Seçilen klasör yolunu oluştur
         secilen_konu_path = os.path.join(self.unite_klasor_yolu, secilen_konu, zorluk.lower())
-        
-        # Soru sayısını al
-        soru_sayisi = int(soru_sayisi_text.split()[0])
-        
+
+        # Klasördeki maksimum soru sayısını kontrol et
+        try:
+            gorseller = [f for f in os.listdir(secilen_konu_path) 
+                        if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))]
+            max_soru = len(gorseller)
+
+            if soru_sayisi > max_soru:
+                self.show_error(f"Seçtiğiniz zorluk seviyesinde sadece {max_soru} soru bulunuyor!")
+                return
+        except Exception as e:
+            print("Klasör okuma hatası:", e)
+            self.show_error("Seçilen klasörde görsel bulunamadı!")
+            return
+
         # Rastgele görselleri seç
         self.secilen_gorseller = self.rastgele_gorseller_sec(secilen_konu_path, soru_sayisi)
-        
+
         if self.secilen_gorseller:
             # Önizleme ekranını göster
             self.gorsel_onizleme_alani_olustur()
         else:
             self.show_error("Seçilen klasörde görsel bulunamadı!")
-
+  
     def rastgele_gorseller_sec(self, klasor_yolu, adet):
         """Belirtilen klasörden rastgele görsel seç"""
         try:
@@ -313,7 +359,8 @@ class KonuSecmePenceresi(ctk.CTkFrame):
                 if not self.secilen_gorseller:
                     self.show_notification(
                         "⚠️ Uyarı",
-                        "Tüm görseller kaldırıldı!\nYeni seçim yapmak için 'Geri' butonuna tıklayın."
+                        "Tüm görseller kaldırıldı!\nYeni seçim yapmak için 'Geri' butonuna tıklayın.",
+                        geri_don=False 
                     )
                     return
 
@@ -331,6 +378,53 @@ class KonuSecmePenceresi(ctk.CTkFrame):
         except Exception as e:
             print(f"Görsel kaldırma hatası: {e}")
             self.show_error("Görsel kaldırılırken bir hata oluştu!")
+
+    def gorseli_guncelle(self, index, parent_frame):
+        """Seçilen görseli güncelle"""
+        try:
+            if 0 <= index < len(self.secilen_gorseller):
+                # Mevcut klasör yolunu al
+                secilen_konu = self.konu_var.get()
+                zorluk = self.zorluk_var.get()
+                klasor_yolu = os.path.join(self.unite_klasor_yolu, secilen_konu, zorluk.lower())
+
+                # Klasördeki tüm görselleri al
+                tum_gorseller = [f for f in os.listdir(klasor_yolu) 
+                               if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))]
+
+                if not tum_gorseller:
+                    self.show_error("Güncellenecek görsel bulunamadı!")
+                    return
+
+                # Mevcut seçili görsellerin dosya adlarını al
+                secili_gorsel_adlari = [os.path.basename(g) for g in self.secilen_gorseller]
+
+                # Kullanılabilir görseller (seçili olmayanlar)
+                kullanilabilir_gorseller = [
+                    os.path.join(klasor_yolu, f) for f in tum_gorseller 
+                    if f not in secili_gorsel_adlari
+                ]
+
+                if not kullanilabilir_gorseller:
+                    self.show_error("Güncellenecek başka görsel kalmadı!")
+                    return
+
+                # Rastgele yeni bir görsel seç
+                import random
+                yeni_gorsel = random.choice(kullanilabilir_gorseller)
+
+                # Görseli güncelle
+                self.secilen_gorseller[index] = yeni_gorsel
+
+                # Önizlemeyi yenile
+                for widget in parent_frame.winfo_children():
+                    widget.destroy()
+
+                self.display_images(parent_frame)
+
+        except Exception as e:
+            print(f"Görsel güncelleme hatası: {e}")
+            self.show_error("Görsel güncellerken bir hata oluştu!")
 
     def guncelle_bilgi_etiketi(self):
         """Bilgi etiketindeki soru sayısını güncelle"""
@@ -374,44 +468,68 @@ class KonuSecmePenceresi(ctk.CTkFrame):
                 img_label.pack(pady=10)
 
                 # Görsel adı etiketi
-                name_label = ctk.CTkLabel(
-                    img_container,
-                    text=f"📸 {os.path.basename(gorsel_path)}",
-                    font=ctk.CTkFont(family="Segoe UI", size=12),
-                    text_color="#495057"
-                )
-                name_label.pack(pady=(0, 5))
+                # name_label = ctk.CTkLabel(
+                #     img_container,
+                #     text=f"📸 {os.path.basename(gorsel_path)}",
+                #     font=ctk.CTkFont(family="Segoe UI", size=12),
+                #     text_color="#595057"
+                # )
+                # name_label.pack(pady=(0, 5))
 
                 # Zorluk ve cevap bilgisi frame'i
                 info_frame = ctk.CTkFrame(img_container, fg_color="transparent")
                 info_frame.pack(pady=(0, 10))
-
+    
                 # Zorluk seviyesini klasör yolundan al
                 zorluk_seviyesi = self.zorluk_var.get()
-
+    
+                # Cevap bilgisini al
+                try:
+                    from logic.answer_utils import get_answer_for_image
+                    cevap = get_answer_for_image(gorsel_path)
+                except ImportError:
+                    cevap = "?"
+    
                 # Bilgi etiketi
                 info_label = ctk.CTkLabel(
                     info_frame,
-                    text=f"Zorluk: {zorluk_seviyesi}      Cevap: A",
+                    text=f"Zorluk: {zorluk_seviyesi}      Cevap: {cevap}",
                     font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
                     text_color="#495057"
                 )
                 info_label.pack(side="left", padx=(0, 20))
-
-                # Kaldır butonu
-                kaldir_btn = ctk.CTkButton(
-                    info_frame,
-                    text="🗑️ Kaldır",
-                    font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-                    width=80,
+    
+                # Butonlar için frame
+                button_frame = ctk.CTkFrame(info_frame, fg_color="transparent")
+                button_frame.pack(side="right")
+    
+                # Güncelle butonu
+                update_btn = ctk.CTkButton(
+                    button_frame,
+                    text="🔄",  # Yenileme ikonu
+                    font=ctk.CTkFont(size=14),
+                    width=30,
+                    height=30,
+                    corner_radius=8,
+                    fg_color="#3498db",
+                    hover_color="#2980b9",
+                    command=lambda idx=i: self.gorseli_guncelle(idx, parent_frame)
+                )
+                update_btn.pack(side="left", padx=(0, 10))
+    
+                # Kaldır butonu (sadece ikon)
+                remove_btn = ctk.CTkButton(
+                    button_frame,
+                    text="🗑️",  # Çöp kutusu ikonu
+                    font=ctk.CTkFont(size=14),
+                    width=30,
                     height=30,
                     corner_radius=8,
                     fg_color="#e74c3c",
                     hover_color="#c0392b",
-                    text_color="#ffffff",
                     command=lambda idx=i: self.gorseli_kaldir(idx, parent_frame)
                 )
-                kaldir_btn.pack(side="right")
+                remove_btn.pack(side="left")
 
             except Exception as e:
                 print(f"Görsel yükleme hatası: {e}")
@@ -443,6 +561,7 @@ class KonuSecmePenceresi(ctk.CTkFrame):
 
     def pdf_olustur(self, konu, zorluk):
         """PDF oluştur ve kullanıcıya bildir"""
+       
         try:
             # Önce reportlab modülünü kontrol et
             try:
@@ -465,8 +584,7 @@ class KonuSecmePenceresi(ctk.CTkFrame):
                 print(f"❌ PDFCreator import hatası: {e}")
                 
                 # Alternatif import yollarını dene
-                import sys
-                import os
+                
                 
                 # Mevcut dosyanın bulunduğu klasörü al
                 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -486,13 +604,32 @@ class KonuSecmePenceresi(ctk.CTkFrame):
                     self.basit_pdf_olustur(konu, zorluk)
                     return
     
+            # Cevap bilgisini almak için modülü import et
+            try:
+                from logic.answer_utils import get_answer_for_image
+                cevap_bilgisi_mevcut = True
+            except ImportError:
+                cevap_bilgisi_mevcut = False
+                print("⚠️ Cevap bilgisi modülü bulunamadı, cevaplar gösterilmeyecek.")
+            
             # PDF oluştur
             pdf = PDFCreator()
             pdf.baslik_ekle(f"{konu} - {zorluk} Seviyesi")
     
-            # Tüm görselleri ekle
+            # Tüm görselleri ve cevapları ekle
+            cevaplar = []
             for idx, gorsel in enumerate(self.secilen_gorseller, 1):
-                pdf.gorsel_ekle(gorsel)
+                # Cevap bilgisini al
+                if cevap_bilgisi_mevcut:
+                    cevap = get_answer_for_image(gorsel)
+                    cevaplar.append(cevap)
+                    pdf.gorsel_ekle(gorsel)
+                else:
+                    pdf.gorsel_ekle(gorsel)
+            
+            # Cevap anahtarını ekle
+            if cevap_bilgisi_mevcut and cevaplar:
+                pdf.cevap_anahtari_ekle(cevaplar)
     
             # Kaydetme konumu sor
             cikti_dosya = filedialog.asksaveasfilename(
@@ -528,9 +665,18 @@ class KonuSecmePenceresi(ctk.CTkFrame):
         """Basit PDF oluşturma - PDFCreator sınıfı import edilemediğinde"""
         try:
             from reportlab.lib.pagesizes import letter
-            from reportlab.platypus import SimpleDocTemplate, Image, Paragraph, Spacer
+            from reportlab.platypus import SimpleDocTemplate, Image, Paragraph, Spacer, Table, TableStyle
             from reportlab.lib.styles import getSampleStyleSheet
             from reportlab.lib.units import inch
+            from reportlab.lib import colors
+            
+            # Cevap bilgisini almak için modülü import et
+            try:
+                from logic.answer_utils import get_answer_for_image
+                cevap_bilgisi_mevcut = True
+            except ImportError:
+                cevap_bilgisi_mevcut = False
+                print("⚠️ Cevap bilgisi modülü bulunamadı, cevaplar gösterilmeyecek.")
 
             # Kaydetme konumu sor
             cikti_dosya = filedialog.asksaveasfilename(
@@ -552,14 +698,48 @@ class KonuSecmePenceresi(ctk.CTkFrame):
             story.append(baslik)
             story.append(Spacer(1, 0.5*inch))
 
-            # Görselleri ekle
+            # Görselleri ve cevapları ekle
+            cevaplar = []
             for gorsel_yolu in self.secilen_gorseller:
                 try:
                     img = Image(gorsel_yolu, width=6*inch, height=4*inch)
                     story.append(img)
+                    
+                    # Cevap bilgisini ekle
+                    if cevap_bilgisi_mevcut:
+                        cevap = get_answer_for_image(gorsel_yolu)
+                        cevaplar.append(cevap)
+                        cevap_stili = styles["Normal"]
+                        cevap_stili.alignment = 1  # Ortalama
+                        cevap_paragraf = Paragraph(f"Cevap: {cevap}", cevap_stili)
+                        story.append(cevap_paragraf)
+                    
                     story.append(Spacer(1, 0.3*inch))
                 except Exception as e:
                     print(f"Görsel ekleme hatası: {e}")
+                    
+            # Cevap anahtarını ekle
+            if cevap_bilgisi_mevcut and cevaplar:
+                story.append(Spacer(1, 0.5*inch))
+                story.append(Paragraph("CEVAP ANAHTARI", styles["Heading1"]))
+                story.append(Spacer(1, 0.2*inch))
+                
+                # Cevapları tablo formatında göster
+                data = []
+                for i, cevap in enumerate(cevaplar, 1):
+                    data.append([f"{i}. Soru", cevap])
+                
+                tablo = Table(data, colWidths=[1*inch, 1*inch])
+                tablo.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, -1), colors.white),
+                    ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
+                ]))
+                
+                story.append(tablo)
 
             # PDF'i kaydet
             doc = SimpleDocTemplate(cikti_dosya, pagesize=letter)
@@ -582,11 +762,57 @@ class KonuSecmePenceresi(ctk.CTkFrame):
         """Hata mesajını göster"""
         self._show_dialog("⚠️ Uyarı", message, "#dc3545")
 
-    def show_notification(self, title, message):
-        """Kullanıcıya bildirim göster"""
-        color = "#27ae60" if "✅" in title else "#e74c3c"
-        self._show_dialog(title, message, color)
+    def show_notification(self, title, message,geri_don=False):
+        notify_window = ctk.CTkToplevel(self.master)
+        notify_window.title(title)
+        notify_window.geometry("400x250")
+        notify_window.resizable(False, False)
+        notify_window.transient(self.master)
+        notify_window.grab_set()
 
+    
+        self.master.update_idletasks()
+        master_x = self.master.winfo_x()
+        master_y = self.master.winfo_y()
+        master_width = self.master.winfo_width()
+        master_height = self.master.winfo_height()
+
+        modal_width = 400
+        modal_height = 250
+
+        x = master_x + (master_width // 2) - (modal_width // 2)
+        y = master_y + (master_height // 2) - (modal_height // 2)
+        notify_window.geometry(f"{modal_width}x{modal_height}+{x}+{y}")
+
+        icon_label = ctk.CTkLabel(
+            notify_window,
+            text=title.split()[0],
+            font=ctk.CTkFont(size=48),
+            text_color="#27ae60" if "✅" in title else "#e74c3c"
+        )
+        icon_label.pack(pady=20)
+
+        message_label = ctk.CTkLabel(
+            notify_window,
+            text=message,
+            font=ctk.CTkFont(size=14),
+            justify="center",
+            wraplength=350
+        )
+        message_label.pack(pady=10)
+
+        def geri_don_ve_kapat():
+            notify_window.destroy()
+            if geri_don:
+                self.geri_don()
+
+        ok_btn = ctk.CTkButton(
+            notify_window,
+            text="Tamam",
+            command=geri_don_ve_kapat
+        )
+        ok_btn.pack(pady=20)
+    
     def _show_dialog(self, title, message, color):
         """Genel dialog gösterme metodu"""
         dialog_window = ctk.CTkToplevel(self.controller)
@@ -647,8 +873,9 @@ class KonuSecmePenceresi(ctk.CTkFrame):
         return color_map.get(hex_color, hex_color)
 
 if __name__ == "__main__":
-    import tkinter as tk
-    root = tk.Tk()
+    # import tkinter as tk
+    # root = tk.Tk()
+    root = ctk.CTk()
     root.state('zoomed')
     app = KonuSecmePenceresi(root, None, ".")
     root.mainloop()

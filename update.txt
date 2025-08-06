@@ -1,0 +1,4 @@
+Eklenecek özellikler : 
+1-Görsellerin tamamı kaldırıldığında açılan pop-up'da tamam'a basınca bir önceki sayfa geliyor onu düzenle
+    bunu hallettim show_notification ve gorseli kaldır fonksiyonu ile alakalı
+2-Test pdf Şablonu ön izlemeye Eklenecek
