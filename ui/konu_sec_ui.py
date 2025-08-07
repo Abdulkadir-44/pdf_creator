@@ -5,6 +5,8 @@ import sys
 from PIL import Image, ImageTk
 import math
 from tkinter import filedialog
+from PIL import Image, ImageDraw, ImageFont
+import tempfile
 
 # Modern tema ayarları
 ctk.set_appearance_mode("light")
@@ -369,7 +371,12 @@ class KonuSecmePenceresi(ctk.CTkFrame):
                 for widget in parent_frame.winfo_children():
                     widget.destroy()
 
-                # Görselleri yeniden göster
+                # Sayfa kontrolü yap
+                sorular_per_sayfa = 8
+                toplam_sayfa = math.ceil(len(self.secilen_gorseller) / sorular_per_sayfa)
+                if hasattr(self, 'current_page') and self.current_page >= toplam_sayfa:
+                    self.current_page = max(0, toplam_sayfa - 1)
+
                 self.display_images(parent_frame)
 
                 # Bilgi etiketini güncelle (soru sayısı değişti)
@@ -443,108 +450,456 @@ class KonuSecmePenceresi(ctk.CTkFrame):
             print(f"Bilgi etiketi güncelleme hatası: {e}")
 
     def display_images(self, parent_frame):
-        """Görselleri göster"""
-        for i, gorsel_path in enumerate(self.secilen_gorseller):
+        """Görselleri sayfa sayfa PDF şablonunda göster"""
+        # Sayfa başına 8 soru (2x4)
+        sorular_per_sayfa = 8
+        toplam_sayfa = math.ceil(len(self.secilen_gorseller) / sorular_per_sayfa)
+
+        if not hasattr(self, 'current_page'):
+            self.current_page = 0
+
+        # Sayfa navigasyon butonları
+        nav_frame = ctk.CTkFrame(parent_frame, fg_color="transparent")
+        nav_frame.pack(pady=10, fill="x")
+
+        if toplam_sayfa > 1:
+            # Önceki sayfa butonu
+            if self.current_page > 0:
+                prev_btn = ctk.CTkButton(
+                    nav_frame,
+                    text="⬅ Önceki Sayfa",
+                    command=lambda: self.change_page(parent_frame, -1),
+                    width=120
+                )
+                prev_btn.pack(side="left", padx=10)
+
+            # Sayfa bilgisi
+            page_info = ctk.CTkLabel(
+                nav_frame,
+                text=f"Sayfa {self.current_page + 1} / {toplam_sayfa}",
+                font=ctk.CTkFont(size=14, weight="bold")
+            )
+            page_info.pack(side="left", padx=20)
+
+            # Sonraki sayfa butonu
+            if self.current_page < toplam_sayfa - 1:
+                next_btn = ctk.CTkButton(
+                    nav_frame,
+                    text="Sonraki Sayfa ➡",
+                    command=lambda: self.change_page(parent_frame, 1),
+                    width=120
+                )
+                next_btn.pack(side="left", padx=10)
+
+        # Mevcut sayfa için görselleri al
+        start_idx = self.current_page * sorular_per_sayfa
+        end_idx = min(start_idx + sorular_per_sayfa, len(self.secilen_gorseller))
+        sayfa_gorselleri = self.secilen_gorseller[start_idx:end_idx]
+
+        # PDF sayfası önizlemesi oluştur
+        pdf_preview = self.create_page_preview(sayfa_gorselleri, start_idx)
+
+        if pdf_preview:
+            # Ana container - PDF ve butonları yan yana yerleştirmek için
+            main_container = ctk.CTkFrame(parent_frame, fg_color="transparent")
+            main_container.pack(pady=20, padx=10, fill="both", expand=True)
+
+            # PDF önizleme container (sol taraf)
+            preview_container = ctk.CTkFrame(main_container, fg_color="#ffffff", corner_radius=10)
+            preview_container.pack(side="left", fill="both", expand=True, padx=(0, 10))
+
+            # PDF görselini göster
+            pdf_label = tk.Label(
+                preview_container,
+                image=pdf_preview,
+                bg="#ffffff"
+            )
+            pdf_label.image = pdf_preview  # Referansı koru
+            pdf_label.pack(pady=20)
+
+            # Butonlar container (sağ taraf)
+            buttons_container = ctk.CTkFrame(main_container, fg_color="#f8f9fa", corner_radius=10, width=250)
+            buttons_container.pack(side="right", fill="y", padx=(10, 0))
+            buttons_container.pack_propagate(False)  # Sabit genişlik için
+
+            # Her soru için butonlar
+            self.create_question_buttons_vertical(buttons_container, sayfa_gorselleri, start_idx, parent_frame)
+    
+    def change_page(self, parent_frame, direction):
+        """Sayfa değiştir"""
+        sorular_per_sayfa = 8
+        toplam_sayfa = math.ceil(len(self.secilen_gorseller) / sorular_per_sayfa)
+
+        new_page = self.current_page + direction
+        if 0 <= new_page < toplam_sayfa:
+            self.current_page = new_page
+
+            # Sayfayı yenile
+            for widget in parent_frame.winfo_children():
+                widget.destroy()
+
+            self.display_images(parent_frame)
+
+    def create_question_buttons_vertical(self, parent_container, sayfa_gorselleri, start_idx, main_parent_frame):
+        """Soruların yanında dikey olarak butonlar oluştur"""
+        # Başlık
+        title_label = ctk.CTkLabel(
+            parent_container,
+            text="🔧 Soru İşlemleri",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color="#495057"
+        )
+        title_label.pack(pady=(20, 10))
+
+        # Scrollable frame butonlar için
+        scrollable_buttons = ctk.CTkScrollableFrame(
+            parent_container,
+            fg_color="transparent",
+            corner_radius=0
+        )
+        scrollable_buttons.pack(fill="both", expand=True, padx=10, pady=(0, 20))
+
+        # Her soru için buton grubu
+        for i, gorsel_path in enumerate(sayfa_gorselleri):
+            # Her soru için frame
+            question_frame = ctk.CTkFrame(scrollable_buttons, fg_color="#ffffff", corner_radius=8)
+            question_frame.pack(fill="x", pady=5, padx=5)
+
+            # Soru numarası ve bilgisi
+            soru_no = start_idx + i + 1
             try:
-                # Görsel container
-                img_container = ctk.CTkFrame(parent_frame, fg_color="#f8f9fa", corner_radius=10)
-                img_container.pack(pady=10, padx=10, fill="x")
+                from logic.answer_utils import get_answer_for_image
+                cevap = get_answer_for_image(gorsel_path)
+            except ImportError:
+                cevap = "?"
 
-                # Görsel yükle ve boyutlandır
-                img = Image.open(gorsel_path)
-                img.thumbnail((300, 300), Image.Resampling.LANCZOS)
-                photo = ImageTk.PhotoImage(img)
+            # Soru bilgisi
+            info_label = ctk.CTkLabel(
+                question_frame,
+                text=f"Soru {soru_no}",
+                font=ctk.CTkFont(size=14, weight="bold"),
+                text_color="#2c3e50"
+            )
+            info_label.pack(pady=(10, 5))
 
-                # Görsel etiketi
-                img_label = tk.Label(
-                    img_container, 
-                    image=photo, 
-                    bg="#f8f9fa", 
-                    bd=2, 
-                    relief="solid",
-                    borderwidth=1
-                )
-                img_label.image = photo  # Referansı koru
-                img_label.pack(pady=10)
+            # Cevap bilgisi
+            answer_label = ctk.CTkLabel(
+                question_frame,
+                text=f"Cevap: {cevap}",
+                font=ctk.CTkFont(size=12),
+                text_color="#7f8c8d"
+            )
+            answer_label.pack(pady=(0, 10))
 
-                # Görsel adı etiketi
-                # name_label = ctk.CTkLabel(
-                #     img_container,
-                #     text=f"📸 {os.path.basename(gorsel_path)}",
-                #     font=ctk.CTkFont(family="Segoe UI", size=12),
-                #     text_color="#595057"
-                # )
-                # name_label.pack(pady=(0, 5))
+            # Butonlar için frame
+            btn_frame = ctk.CTkFrame(question_frame, fg_color="transparent")
+            btn_frame.pack(pady=(0, 10))
 
-                # Zorluk ve cevap bilgisi frame'i
-                info_frame = ctk.CTkFrame(img_container, fg_color="transparent")
-                info_frame.pack(pady=(0, 10))
-    
-                # Zorluk seviyesini klasör yolundan al
-                zorluk_seviyesi = self.zorluk_var.get()
-    
-                # Cevap bilgisini al
+            # Güncelle butonu
+            update_btn = ctk.CTkButton(
+                btn_frame,
+                text="🔄 Güncelle",
+                width=80, height=30,
+                font=ctk.CTkFont(size=11),
+                fg_color="#3498db",
+                hover_color="#2980b9",
+                command=lambda idx=start_idx+i: self.gorseli_guncelle(idx, main_parent_frame)
+            )
+            update_btn.pack(side="left", padx=(0, 5))
+
+            # Sil butonu
+            remove_btn = ctk.CTkButton(
+                btn_frame,
+                text="🗑️ Sil",
+                width=60, height=30,
+                font=ctk.CTkFont(size=11),
+                fg_color="#e74c3c",
+                hover_color="#c0392b",
+                command=lambda idx=start_idx+i: self.gorseli_kaldir(idx, main_parent_frame)
+            )
+            remove_btn.pack(side="left", padx=(5, 0))
+
+    def create_page_preview(self, sayfa_gorselleri, start_idx):
+        """Bir sayfa için PDF önizlemesi oluştur"""
+        try:
+            current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            template_path = os.path.join(current_dir, "templates", "template.png")
+
+            if not os.path.exists(template_path):
+                print(f"Şablon bulunamadı: {template_path}")
+                return None
+
+            # Şablonu aç
+            template = Image.open(template_path).convert("RGB")
+            template_copy = template.copy()
+
+            # 2x4 grid koordinatları hesapla
+            template_width, template_height = 1414, 2000
+
+            # Margin'ler
+            top_margin = 150
+            left_margin = 50
+            right_margin = 50
+            bottom_margin = 100
+
+            # Kullanılabilir alan
+            usable_width = template_width - left_margin - right_margin
+            usable_height = template_height - top_margin - bottom_margin
+
+            # Her soru için alan
+            soru_width = usable_width // 2 - 20  # 20px gap
+            soru_height = usable_height // 4 - 40  # 20px gap
+
+            # Görselleri yerleştir
+            for i, gorsel_path in enumerate(sayfa_gorselleri):
                 try:
-                    from logic.answer_utils import get_answer_for_image
-                    cevap = get_answer_for_image(gorsel_path)
-                except ImportError:
-                    cevap = "?"
-    
-                # Bilgi etiketi
-                info_label = ctk.CTkLabel(
-                    info_frame,
-                    text=f"Zorluk: {zorluk_seviyesi}      Cevap: {cevap}",
-                    font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-                    text_color="#495057"
-                )
-                info_label.pack(side="left", padx=(0, 20))
-    
-                # Butonlar için frame
-                button_frame = ctk.CTkFrame(info_frame, fg_color="transparent")
-                button_frame.pack(side="right")
-    
-                # Güncelle butonu
-                update_btn = ctk.CTkButton(
-                    button_frame,
-                    text="🔄",  # Yenileme ikonu
-                    font=ctk.CTkFont(size=14),
-                    width=30,
-                    height=30,
-                    corner_radius=8,
-                    fg_color="#3498db",
-                    hover_color="#2980b9",
-                    command=lambda idx=i: self.gorseli_guncelle(idx, parent_frame)
-                )
-                update_btn.pack(side="left", padx=(0, 10))
-    
-                # Kaldır butonu (sadece ikon)
-                remove_btn = ctk.CTkButton(
-                    button_frame,
-                    text="🗑️",  # Çöp kutusu ikonu
-                    font=ctk.CTkFont(size=14),
-                    width=30,
-                    height=30,
-                    corner_radius=8,
-                    fg_color="#e74c3c",
-                    hover_color="#c0392b",
-                    command=lambda idx=i: self.gorseli_kaldir(idx, parent_frame)
-                )
-                remove_btn.pack(side="left")
+                    # Grid pozisyonu hesapla
+                    row = i % 4  # 0, 0, 1, 1, 2, 2, 3, 3
+                    col = i // 4   # 0, 1, 0, 1, 0, 1, 0, 1
 
-            except Exception as e:
-                print(f"Görsel yükleme hatası: {e}")
-                # Hata durumunda placeholder göster
-                error_container = ctk.CTkFrame(parent_frame, fg_color="#f8f9fa", corner_radius=10)
-                error_container.pack(pady=10, padx=10, fill="x")
+                    # Koordinatları hesapla
+                    x = left_margin + col * (soru_width + 20)
+                    y = top_margin + row * (soru_height + 40)
 
-                error_label = ctk.CTkLabel(
-                    error_container,
-                    text=f"❌ Görsel yüklenemedi:\n{os.path.basename(gorsel_path)}",
-                    font=ctk.CTkFont(family="Segoe UI", size=12),
-                    text_color="#e74c3c"
-                )
-                error_label.pack(pady=20)
-   
+                    # Soruyu aç ve boyutlandır
+                    soru_img = Image.open(gorsel_path)
+                    soru_img.thumbnail((soru_width, soru_height), Image.Resampling.LANCZOS)
+
+                    # Görseli yerleştir (ortalayarak)
+                    img_w, img_h = soru_img.size
+                    paste_x = x + (soru_width - img_w) // 2
+                    paste_y = y + (soru_height - img_h) // 2
+
+                    template_copy.paste(soru_img, (paste_x, paste_y))
+
+                    # Soru numarası ekle
+                    draw = ImageDraw.Draw(template_copy)
+                    try:
+                        font = ImageFont.truetype("arial.ttf", 20)
+                    except:
+                        font = ImageFont.load_default()
+
+                    soru_no = start_idx + i + 1
+                    draw.text((x + 15, y + 30), f"{soru_no}.", fill="black", font=font)
+
+                except Exception as e:
+                    print(f"Soru {i+1} yerleştirme hatası: {e}")
+
+            # Önizleme için boyutlandır (oranı koru)
+            preview_width = 600
+            preview_height = int(2000 * preview_width / 1414)
+            template_copy = template_copy.resize((preview_width, preview_height), Image.Resampling.LANCZOS)
+
+            return ImageTk.PhotoImage(template_copy)
+
+        except Exception as e:
+            print(f"Sayfa önizleme hatası: {e}")
+            return None
+
+    def create_question_buttons(self, parent_container, sayfa_gorselleri, start_idx, main_parent_frame):
+        """Her soru için düzenle/sil butonları oluştur"""
+        buttons_frame = ctk.CTkFrame(parent_container, fg_color="transparent")
+        buttons_frame.pack(pady=20)
+
+        # 2 sütunluk grid oluştur
+        for i, gorsel_path in enumerate(sayfa_gorselleri):
+            row = i // 2
+            col = i % 2
+
+            # Her soru için buton grubu
+            question_frame = ctk.CTkFrame(buttons_frame, fg_color="#f8f9fa", corner_radius=8)
+            question_frame.grid(row=row, column=col, padx=10, pady=5, sticky="ew")
+
+            # Soru numarası ve bilgisi
+            soru_no = start_idx + i + 1
+            try:
+                from logic.answer_utils import get_answer_for_image
+                cevap = get_answer_for_image(gorsel_path)
+            except ImportError:
+                cevap = "?"
+
+            info_label = ctk.CTkLabel(
+                question_frame,
+                text=f"Soru {soru_no} | Cevap: {cevap}",
+                font=ctk.CTkFont(size=11, weight="bold")
+            )
+            info_label.pack(pady=5)
+
+            # Butonlar
+            btn_frame = ctk.CTkFrame(question_frame, fg_color="transparent")
+            btn_frame.pack(pady=5)
+
+            # Güncelle butonu
+            update_btn = ctk.CTkButton(
+                btn_frame,
+                text="🔄",
+                width=30, height=25,
+                command=lambda idx=start_idx+i: self.gorseli_guncelle(idx, main_parent_frame)
+            )
+            update_btn.pack(side="left", padx=2)
+
+            # Sil butonu
+            remove_btn = ctk.CTkButton(
+                btn_frame,
+                text="🗑️",
+                width=30, height=25,
+                fg_color="#e74c3c",
+                hover_color="#c0392b",
+                command=lambda idx=start_idx+i: self.gorseli_kaldir(idx, main_parent_frame)
+            )
+            remove_btn.pack(side="left", padx=2)
+
+        # Grid sütunlarını eşit genişlikte yap
+        buttons_frame.grid_columnconfigure(0, weight=1)
+        buttons_frame.grid_columnconfigure(1, weight=1)
+
+    def create_pdf_preview(self, gorsel_path, soru_no):
+        """Görseli PDF şablonuna yerleştirerek önizleme oluştur"""
+        try:
+            # Şablon yolunu belirle
+            current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # ui klasöründen çıkıp ana dizine git
+            template_path = os.path.join(current_dir, "templates", "template.png")
+
+            if not os.path.exists(template_path):
+                print(f"Şablon bulunamadı: {template_path}")
+                return None
+
+            # Şablonu aç
+            template = Image.open(template_path).convert("RGB")
+            template_copy = template.copy()
+
+            # Soruyu aç ve boyutlandır
+            soru_image = Image.open(gorsel_path)
+
+            # Şablondaki soru alanının boyutlarını hesapla (şablonunuza göre ayarlayın)
+            template_width, template_height = template_copy.size
+
+            # Soru alanı koordinatları (şablonunuza göre ayarlayın)
+            # Örnek: şablonun %20'si margin, %60'ı soru alanı
+            margin_x = int(template_width * 0.1)
+            margin_y = int(template_height * 0.15)
+            soru_width = int(template_width * 0.8)
+            soru_height = int(template_height * 0.7)
+
+            # Soruyu boyutlandır (aspect ratio'yu koru)
+            soru_image.thumbnail((soru_width, soru_height), Image.Resampling.LANCZOS)
+
+            # Soruyu şablona yerleştir (ortalayarak)
+            soru_w, soru_h = soru_image.size
+            paste_x = margin_x + (soru_width - soru_w) // 2
+            paste_y = margin_y + (soru_height - soru_h) // 2
+
+            template_copy.paste(soru_image, (paste_x, paste_y))
+
+            # Soru numarasını ekle
+            draw = ImageDraw.Draw(template_copy)
+            try:
+                # Daha büyük font kullan
+                font = ImageFont.truetype("arial.ttf", 24)
+            except:
+                font = ImageFont.load_default()
+
+            draw.text((margin_x, margin_y - 40), f"Soru {soru_no}", fill="black", font=font)
+
+            # Önizleme için boyutlandır
+            preview_size = (400, 500)  # Önizleme boyutu
+            template_copy.thumbnail(preview_size, Image.Resampling.LANCZOS)
+
+            # PhotoImage'e çevir
+            preview_photo = ImageTk.PhotoImage(template_copy)
+
+            return preview_photo
+
+        except Exception as e:
+            print(f"PDF önizleme oluşturma hatası: {e}")
+            return None
+
+    def display_simple_image(self, parent_frame, gorsel_path, index):
+        """Basit görsel gösterimi (şablon bulunamadığında)"""
+        try:
+            # Görsel container
+            img_container = ctk.CTkFrame(parent_frame, fg_color="#f8f9fa", corner_radius=10)
+            img_container.pack(pady=10, padx=10, fill="x")
+
+            # Görsel yükle ve boyutlandır
+            img = Image.open(gorsel_path)
+            img.thumbnail((300, 300), Image.Resampling.LANCZOS)
+            photo = ImageTk.PhotoImage(img)
+
+            # Görsel etiketi
+            img_label = tk.Label(
+                img_container, 
+                image=photo, 
+                bg="#f8f9fa", 
+                bd=2, 
+                relief="solid",
+                borderwidth=1
+            )
+            img_label.image = photo  # Referansı koru
+            img_label.pack(pady=10)
+
+            # Şablon bulunamadı uyarısı
+            warning_label = ctk.CTkLabel(
+                img_container,
+                text="⚠️ PDF şablonu bulunamadı, basit görsel gösteriliyor",
+                font=ctk.CTkFont(family="Segoe UI", size=10),
+                text_color="#dc3545"
+            )
+            warning_label.pack(pady=(0, 5))
+
+            # Zorluk ve cevap bilgisi (önceki kodunuzla aynı)
+            info_frame = ctk.CTkFrame(img_container, fg_color="transparent")
+            info_frame.pack(pady=(0, 10))
+
+            zorluk_seviyesi = self.zorluk_var.get()
+
+            try:
+                from logic.answer_utils import get_answer_for_image
+                cevap = get_answer_for_image(gorsel_path)
+            except ImportError:
+                cevap = "?"
+
+            info_label = ctk.CTkLabel(
+                info_frame,
+                text=f"Soru {index+1} | Zorluk: {zorluk_seviyesi} | Cevap: {cevap}",
+                font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+                text_color="#495057"
+            )
+            info_label.pack(side="left", padx=(0, 20))
+
+            # Butonlar (önceki kodunuzla aynı)
+            button_frame = ctk.CTkFrame(info_frame, fg_color="transparent")
+            button_frame.pack(side="right")
+
+            update_btn = ctk.CTkButton(
+                button_frame,
+                text="🔄",
+                font=ctk.CTkFont(size=14),
+                width=30,
+                height=30,
+                corner_radius=8,
+                fg_color="#3498db",
+                hover_color="#2980b9",
+                command=lambda idx=index: self.gorseli_guncelle(idx, parent_frame)
+            )
+            update_btn.pack(side="left", padx=(0, 10))
+
+            remove_btn = ctk.CTkButton(
+                button_frame,
+                text="🗑️",
+                font=ctk.CTkFont(size=14),
+                width=30,
+                height=30,
+                corner_radius=8,
+                fg_color="#e74c3c",
+                hover_color="#c0392b",
+                command=lambda idx=index: self.gorseli_kaldir(idx, parent_frame)
+            )
+            remove_btn.pack(side="left")
+
+        except Exception as e:
+            print(f"Basit görsel gösterim hatası: {e}")
+
     def geri_don(self):
         """Konu seçim ekranına geri dön"""
         try:
@@ -641,10 +996,12 @@ class KonuSecmePenceresi(ctk.CTkFrame):
     
             if cikti_dosya:
                 if pdf.kaydet(cikti_dosya):
+                    kayit_yeri = f"{os.path.basename(os.path.dirname(cikti_dosya))}/{os.path.basename(cikti_dosya)}"
+
                     # Başarılı bildirimi
                     self.show_notification(
                         "✅ PDF Başarıyla Oluşturuldu!",
-                        f"📁 Kayıt Yeri: {os.path.basename(cikti_dosya)}\n\n"
+                        f"📁 Kayıt Yeri: {kayit_yeri}\n\n"
                         f"✨ {len(self.secilen_gorseller)} soru PDF formatında kaydedildi"
                     )
                 else:
