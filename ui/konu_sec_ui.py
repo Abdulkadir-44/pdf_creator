@@ -6,7 +6,8 @@ from PIL import Image, ImageTk
 import math
 from tkinter import filedialog
 from PIL import Image, ImageDraw, ImageFont
-import tempfile
+from logic.answer_utils import get_answer_for_image
+from logic.pdf_generator import PDFCreator
 
 # Modern tema ayarları
 ctk.set_appearance_mode("light")
@@ -19,7 +20,7 @@ class KonuSecmePenceresi(ctk.CTkFrame):
         self.unite_klasor_yolu = unite_klasor_yolu
         self.on_questions_selected = on_questions_selected
         self.secilen_gorseller = []
-        self.selected_questions = []  # Store selected question paths
+        # self.selected_questions = []  # Store selected question paths
         
         # UI'ı oluştur
         self.setup_ui()
@@ -111,6 +112,32 @@ class KonuSecmePenceresi(ctk.CTkFrame):
         
         # Input alanına tıklandığında dropdown'ı açmak için olay bağlama
         self.konu_menu._entry.bind("<Button-1>", lambda e: self.konu_menu._open_dropdown_menu())
+
+        # Soru Tipi Seçimi (Konu seçiminden SONRA)
+        tip_label = ctk.CTkLabel(
+            self.form_frame, 
+            text="📝 Soru Tipi:",
+            font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
+            text_color="#495057"
+        )
+        tip_label.pack(pady=(10, 10), anchor="w", padx=40)
+
+        self.soru_tipi_var = tk.StringVar()
+        self.soru_tipi_menu = ctk.CTkComboBox(
+            self.form_frame,
+            variable=self.soru_tipi_var,
+            values=["Test", "Yazili"],
+            font=ctk.CTkFont(family="Segoe UI", size=14),
+            width=400,
+            height=40,
+            corner_radius=10,
+            state="readonly"
+        )
+        self.soru_tipi_menu.set("Soru tipi seçin...")
+        self.soru_tipi_menu.pack(pady=(0, 20), padx=40)
+
+        # Input alanına tıklandığında dropdown'ı açmak için olay bağlama
+        self.soru_tipi_menu._entry.bind("<Button-1>", lambda e: self.soru_tipi_menu._open_dropdown_menu())
 
         # Zorluk Seçimi
         zorluk_label = ctk.CTkLabel(
@@ -216,13 +243,13 @@ class KonuSecmePenceresi(ctk.CTkFrame):
         """Seçimleri doğrula ve önizleme ekranını göster"""
         # Seçimleri al
         secilen_konu = self.konu_var.get()
+        soru_tipi = self.soru_tipi_var.get()
         zorluk = self.zorluk_var.get()
 
         # Validasyon
-        if any("seçin" in var.get().lower() for var in [self.konu_var, self.zorluk_var]):
-            self.show_error("Lütfen konu ve zorluk seviyesini seçin!")
+        if any("seçin" in var.get().lower() for var in [self.konu_var, self.soru_tipi_var, self.zorluk_var]):
+            self.show_error("Lütfen konu, soru tipi ve zorluk seviyesini seçin!")
             return
-
         # Soru sayısı validasyonu
         try:
             soru_sayisi = int(self.soru_sayisi_var.get())
@@ -233,7 +260,8 @@ class KonuSecmePenceresi(ctk.CTkFrame):
             return
 
         # Seçilen klasör yolunu oluştur
-        secilen_konu_path = os.path.join(self.unite_klasor_yolu, secilen_konu, zorluk.lower())
+        # Seçilen klasör yolunu oluştur
+        secilen_konu_path = os.path.join(self.unite_klasor_yolu, secilen_konu, soru_tipi.lower(), zorluk.lower())
 
         # Klasördeki maksimum soru sayısını kontrol et
         try:
@@ -302,7 +330,7 @@ class KonuSecmePenceresi(ctk.CTkFrame):
         # Bilgi etiketi
         info_label = ctk.CTkLabel(
             self.form_frame,
-            text=f"📚 {secilen_konu} | ⚡ {zorluk} | 🔢 {len(self.secilen_gorseller)} soru",
+            text=f"📚 {secilen_konu} | 📝 {self.soru_tipi_var.get()} | ⚡ {zorluk} | 🔢 {len(self.secilen_gorseller)} soru",
             font=ctk.CTkFont(family="Segoe UI", size=14),
             text_color="#6c757d"
         )
@@ -327,7 +355,7 @@ class KonuSecmePenceresi(ctk.CTkFrame):
         pdf_btn = ctk.CTkButton(
             button_frame,
             text="📄 PDF Oluştur",
-            command=lambda: self.pdf_olustur(secilen_konu, zorluk),
+            command=lambda: self.pdf_olustur(secilen_konu,self.soru_tipi_var.get(), zorluk),
             font=ctk.CTkFont(size=16, weight="bold"),
             width=200,
             height=45,
@@ -390,10 +418,11 @@ class KonuSecmePenceresi(ctk.CTkFrame):
         """Seçilen görseli güncelle"""
         try:
             if 0 <= index < len(self.secilen_gorseller):
-                # Mevcut klasör yolunu al
+               # Mevcut klasör yolunu al
                 secilen_konu = self.konu_var.get()
+                soru_tipi = self.soru_tipi_var.get()
                 zorluk = self.zorluk_var.get()
-                klasor_yolu = os.path.join(self.unite_klasor_yolu, secilen_konu, zorluk.lower())
+                klasor_yolu = os.path.join(self.unite_klasor_yolu, secilen_konu, soru_tipi.lower(), zorluk.lower())
 
                 # Klasördeki tüm görselleri al
                 tum_gorseller = [f for f in os.listdir(klasor_yolu) 
@@ -442,26 +471,32 @@ class KonuSecmePenceresi(ctk.CTkFrame):
                 info_widget = widgets[1]  # İkinci widget bilgi etiketi olmalı
                 if hasattr(info_widget, 'configure'):
                     secilen_konu = self.konu_var.get()
+                    soru_tipi = self.soru_tipi_var.get()
                     zorluk = self.zorluk_var.get()
                     info_widget.configure(
-                        text=f"📚 {secilen_konu} | ⚡ {zorluk} | 🔢 {len(self.secilen_gorseller)} soru"
+                        text=f"📚 {secilen_konu} | 📝 {soru_tipi} | ⚡ {zorluk} | 🔢 {len(self.secilen_gorseller)} soru"
                     )
         except Exception as e:
             print(f"Bilgi etiketi güncelleme hatası: {e}")
 
     def display_images(self, parent_frame):
         """Görselleri sayfa sayfa PDF şablonunda göster"""
-        # Sayfa başına 8 soru (2x4)
-        sorular_per_sayfa = 8
-        toplam_sayfa = math.ceil(len(self.secilen_gorseller) / sorular_per_sayfa)
+        # Soru tipine göre sayfa başı soru sayısı
+        soru_tipi = self.soru_tipi_var.get().lower()
+        if soru_tipi == "yazili":
+            sorular_per_sayfa = 3  # Yazılı için sayfa başına 3 soru
+        else:
+            sorular_per_sayfa = 8  # Test için sayfa başına 8 soru
 
+        toplam_sayfa = math.ceil(len(self.secilen_gorseller) / sorular_per_sayfa)
+ 
         if not hasattr(self, 'current_page'):
             self.current_page = 0
-
+ 
         # Sayfa navigasyon butonları
         nav_frame = ctk.CTkFrame(parent_frame, fg_color="transparent")
         nav_frame.pack(pady=10, fill="x")
-
+ 
         if toplam_sayfa > 1:
             # Önceki sayfa butonu
             if self.current_page > 0:
@@ -472,7 +507,7 @@ class KonuSecmePenceresi(ctk.CTkFrame):
                     width=120
                 )
                 prev_btn.pack(side="left", padx=10)
-
+ 
             # Sayfa bilgisi
             page_info = ctk.CTkLabel(
                 nav_frame,
@@ -480,7 +515,7 @@ class KonuSecmePenceresi(ctk.CTkFrame):
                 font=ctk.CTkFont(size=14, weight="bold")
             )
             page_info.pack(side="left", padx=20)
-
+ 
             # Sonraki sayfa butonu
             if self.current_page < toplam_sayfa - 1:
                 next_btn = ctk.CTkButton(
@@ -490,44 +525,50 @@ class KonuSecmePenceresi(ctk.CTkFrame):
                     width=120
                 )
                 next_btn.pack(side="left", padx=10)
-
+ 
         # Mevcut sayfa için görselleri al
         start_idx = self.current_page * sorular_per_sayfa
         end_idx = min(start_idx + sorular_per_sayfa, len(self.secilen_gorseller))
         sayfa_gorselleri = self.secilen_gorseller[start_idx:end_idx]
-
+ 
         # PDF sayfası önizlemesi oluştur
         pdf_preview = self.create_page_preview(sayfa_gorselleri, start_idx)
-
+ 
         if pdf_preview:
             # Ana container - PDF ve butonları yan yana yerleştirmek için
             main_container = ctk.CTkFrame(parent_frame, fg_color="transparent")
             main_container.pack(pady=20, padx=10, fill="both", expand=True)
-
+ 
             # PDF önizleme container (sol taraf)
-            preview_container = ctk.CTkFrame(main_container, fg_color="#ffffff", corner_radius=10)
+            # PDF önizleme container (sol taraf) - arka plan rengini değiştir
+            preview_container = ctk.CTkFrame(main_container, fg_color="#d1d1d1", corner_radius=10)
             preview_container.pack(side="left", fill="both", expand=True, padx=(0, 10))
-
+ 
             # PDF görselini göster
             pdf_label = tk.Label(
                 preview_container,
                 image=pdf_preview,
-                bg="#ffffff"
+                bg="#d1d1d1"
             )
             pdf_label.image = pdf_preview  # Referansı koru
             pdf_label.pack(pady=20)
-
+ 
             # Butonlar container (sağ taraf)
             buttons_container = ctk.CTkFrame(main_container, fg_color="#f8f9fa", corner_radius=10, width=250)
             buttons_container.pack(side="right", fill="y", padx=(10, 0))
             buttons_container.pack_propagate(False)  # Sabit genişlik için
-
+ 
             # Her soru için butonlar
             self.create_question_buttons_vertical(buttons_container, sayfa_gorselleri, start_idx, parent_frame)
     
     def change_page(self, parent_frame, direction):
         """Sayfa değiştir"""
-        sorular_per_sayfa = 8
+        soru_tipi = self.soru_tipi_var.get().lower()
+        if soru_tipi == "yazili":
+            sorular_per_sayfa = 3
+        else:
+            sorular_per_sayfa = 8
+
         toplam_sayfa = math.ceil(len(self.secilen_gorseller) / sorular_per_sayfa)
 
         new_page = self.current_page + direction
@@ -568,7 +609,6 @@ class KonuSecmePenceresi(ctk.CTkFrame):
             # Soru numarası ve bilgisi
             soru_no = start_idx + i + 1
             try:
-                from logic.answer_utils import get_answer_for_image
                 cevap = get_answer_for_image(gorsel_path)
             except ImportError:
                 cevap = "?"
@@ -621,9 +661,23 @@ class KonuSecmePenceresi(ctk.CTkFrame):
 
     def create_page_preview(self, sayfa_gorselleri, start_idx):
         """Bir sayfa için PDF önizlemesi oluştur"""
+
+        print(f"Sayfa görselleri sayısı: {len(sayfa_gorselleri)}")
+
         try:
+            # Soru tipine göre şablon seç
             current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            template_path = os.path.join(current_dir, "templates", "template.png")
+            soru_tipi = self.soru_tipi_var.get().lower()
+            print(f"Soru tipi: {soru_tipi}")
+
+            if soru_tipi == "test":
+                template_name = "template.png"  # Test şablonu
+            elif soru_tipi == "yazili":
+                template_name = "template2.png"  # Yazılı şablonu
+            else:
+                template_name = "template.png"  # Varsayılan
+
+            template_path = os.path.join(current_dir, "templates", template_name)
 
             if not os.path.exists(template_path):
                 print(f"Şablon bulunamadı: {template_path}")
@@ -632,43 +686,95 @@ class KonuSecmePenceresi(ctk.CTkFrame):
             # Şablonu aç
             template = Image.open(template_path).convert("RGB")
             template_copy = template.copy()
+            print(f"Template boyutu: {template_copy.size}")
 
-            # 2x4 grid koordinatları hesapla
-            template_width, template_height = 1414, 2000
+            # Soru tipine göre layout hesapla
+            template_width, template_height = template_copy.size
 
-            # Margin'ler
-            top_margin = 150
-            left_margin = 50
-            right_margin = 50
-            bottom_margin = 100
+            if soru_tipi == "yazili":
+                # Yazılı için dikey layout (1 sütun)
+                top_margin = int(template_height * 0.1)
+                left_margin = int(template_width * 0.05)
+                right_margin = int(template_width * 0.05)
+                bottom_margin = int(template_height * 0.05)
 
-            # Kullanılabilir alan
-            usable_width = template_width - left_margin - right_margin
-            usable_height = template_height - top_margin - bottom_margin
+                # Kullanılabilir alan
+                usable_width = template_width - left_margin - right_margin
+                usable_height = template_height - top_margin - bottom_margin
 
-            # Her soru için alan
-            soru_width = usable_width // 2 - 20  # 20px gap
-            soru_height = usable_height // 4 - 40  # 20px gap
+                # Her soru için alan - soru + cevap alanı
+                soru_ve_cevap_yuksekligi = usable_height // 3
+
+                # Soru görseli için alan
+                yazili_soru_height = int(soru_ve_cevap_yuksekligi * 0.6)
+                yazili_soru_width = usable_width  # Tam genişlik
+
+                print(f"Yazılı Layout - yazili_soru_width: {yazili_soru_width}")
+
+            else:
+                # Test için 2x4 grid
+                top_margin = 150
+                left_margin = 50
+                right_margin = 50
+                bottom_margin = 100
+
+                usable_width = template_width - left_margin - right_margin
+                usable_height = template_height - top_margin - bottom_margin
+
+                test_soru_width = usable_width // 2 - 20
+                test_soru_height = usable_height // 4 - 40
 
             # Görselleri yerleştir
             for i, gorsel_path in enumerate(sayfa_gorselleri):
                 try:
-                    # Grid pozisyonu hesapla
-                    row = i % 4  # 0, 0, 1, 1, 2, 2, 3, 3
-                    col = i // 4   # 0, 1, 0, 1, 0, 1, 0, 1
+                    if soru_tipi == "yazili":
+                        # Yazılı için dikey düzen
+                        row = i
+                        col = 0
 
-                    # Koordinatları hesapla
-                    x = left_margin + col * (soru_width + 20)
-                    y = top_margin + row * (soru_height + 40)
+                        x = left_margin
+                        y = top_margin + row * soru_ve_cevap_yuksekligi
+
+                        # Yazılı için boyutları kullan
+                        current_soru_width = yazili_soru_width
+                        current_soru_height = yazili_soru_height
+
+                        print(f"Soru {i+1}: x={x}, y={y}, current_soru_width={current_soru_width}")
+
+                    else:
+                        # Test için 2x4 grid
+                        row = i % 4
+                        col = i // 4
+
+                        x = left_margin + col * (test_soru_width + 20)
+                        y = top_margin + row * (test_soru_height + 40)
+
+                        current_soru_width = test_soru_width
+                        current_soru_height = test_soru_height
 
                     # Soruyu aç ve boyutlandır
                     soru_img = Image.open(gorsel_path)
-                    soru_img.thumbnail((soru_width, soru_height), Image.Resampling.LANCZOS)
 
-                    # Görseli yerleştir (ortalayarak)
-                    img_w, img_h = soru_img.size
-                    paste_x = x + (soru_width - img_w) // 2
-                    paste_y = y + (soru_height - img_h) // 2
+                    if soru_tipi == "yazili":
+                        # Yazılı için tam genişlik
+                        new_width = current_soru_width  # Tam genişlik kullan
+                        img_ratio = soru_img.width / soru_img.height
+                        new_height = int(current_soru_width / img_ratio)
+
+                        if new_height > current_soru_height:
+                            new_height = current_soru_height
+
+                        soru_img = soru_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                        paste_x = x
+                        paste_y = y
+
+                        print(f"Yeni boyut: ({new_width}, {new_height})")
+                    else:
+                        # Test için eski mantık
+                        soru_img.thumbnail((current_soru_width, current_soru_height), Image.Resampling.LANCZOS)
+                        img_w, img_h = soru_img.size
+                        paste_x = x + (current_soru_width - img_w) // 2
+                        paste_y = y + (current_soru_height - img_h) // 2
 
                     template_copy.paste(soru_img, (paste_x, paste_y))
 
@@ -695,40 +801,40 @@ class KonuSecmePenceresi(ctk.CTkFrame):
         except Exception as e:
             print(f"Sayfa önizleme hatası: {e}")
             return None
-
+    
     def create_question_buttons(self, parent_container, sayfa_gorselleri, start_idx, main_parent_frame):
         """Her soru için düzenle/sil butonları oluştur"""
         buttons_frame = ctk.CTkFrame(parent_container, fg_color="transparent")
         buttons_frame.pack(pady=20)
-
+ 
         # 2 sütunluk grid oluştur
         for i, gorsel_path in enumerate(sayfa_gorselleri):
             row = i // 2
             col = i % 2
-
+ 
             # Her soru için buton grubu
             question_frame = ctk.CTkFrame(buttons_frame, fg_color="#f8f9fa", corner_radius=8)
             question_frame.grid(row=row, column=col, padx=10, pady=5, sticky="ew")
-
+ 
             # Soru numarası ve bilgisi
             soru_no = start_idx + i + 1
             try:
-                from logic.answer_utils import get_answer_for_image
+                # 
                 cevap = get_answer_for_image(gorsel_path)
             except ImportError:
                 cevap = "?"
-
+ 
             info_label = ctk.CTkLabel(
                 question_frame,
                 text=f"Soru {soru_no} | Cevap: {cevap}",
                 font=ctk.CTkFont(size=11, weight="bold")
             )
             info_label.pack(pady=5)
-
+ 
             # Butonlar
             btn_frame = ctk.CTkFrame(question_frame, fg_color="transparent")
             btn_frame.pack(pady=5)
-
+ 
             # Güncelle butonu
             update_btn = ctk.CTkButton(
                 btn_frame,
@@ -737,7 +843,7 @@ class KonuSecmePenceresi(ctk.CTkFrame):
                 command=lambda idx=start_idx+i: self.gorseli_guncelle(idx, main_parent_frame)
             )
             update_btn.pack(side="left", padx=2)
-
+ 
             # Sil butonu
             remove_btn = ctk.CTkButton(
                 btn_frame,
@@ -748,7 +854,7 @@ class KonuSecmePenceresi(ctk.CTkFrame):
                 command=lambda idx=start_idx+i: self.gorseli_kaldir(idx, main_parent_frame)
             )
             remove_btn.pack(side="left", padx=2)
-
+ 
         # Grid sütunlarını eşit genişlikte yap
         buttons_frame.grid_columnconfigure(0, weight=1)
         buttons_frame.grid_columnconfigure(1, weight=1)
@@ -759,38 +865,38 @@ class KonuSecmePenceresi(ctk.CTkFrame):
             # Şablon yolunu belirle
             current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # ui klasöründen çıkıp ana dizine git
             template_path = os.path.join(current_dir, "templates", "template.png")
-
+ 
             if not os.path.exists(template_path):
                 print(f"Şablon bulunamadı: {template_path}")
                 return None
-
+ 
             # Şablonu aç
             template = Image.open(template_path).convert("RGB")
             template_copy = template.copy()
-
+ 
             # Soruyu aç ve boyutlandır
             soru_image = Image.open(gorsel_path)
-
+ 
             # Şablondaki soru alanının boyutlarını hesapla (şablonunuza göre ayarlayın)
             template_width, template_height = template_copy.size
-
+ 
             # Soru alanı koordinatları (şablonunuza göre ayarlayın)
             # Örnek: şablonun %20'si margin, %60'ı soru alanı
             margin_x = int(template_width * 0.1)
             margin_y = int(template_height * 0.15)
             soru_width = int(template_width * 0.8)
             soru_height = int(template_height * 0.7)
-
+ 
             # Soruyu boyutlandır (aspect ratio'yu koru)
             soru_image.thumbnail((soru_width, soru_height), Image.Resampling.LANCZOS)
-
+ 
             # Soruyu şablona yerleştir (ortalayarak)
             soru_w, soru_h = soru_image.size
             paste_x = margin_x + (soru_width - soru_w) // 2
             paste_y = margin_y + (soru_height - soru_h) // 2
-
+ 
             template_copy.paste(soru_image, (paste_x, paste_y))
-
+ 
             # Soru numarasını ekle
             draw = ImageDraw.Draw(template_copy)
             try:
@@ -798,18 +904,18 @@ class KonuSecmePenceresi(ctk.CTkFrame):
                 font = ImageFont.truetype("arial.ttf", 24)
             except:
                 font = ImageFont.load_default()
-
+ 
             draw.text((margin_x, margin_y - 40), f"Soru {soru_no}", fill="black", font=font)
-
+ 
             # Önizleme için boyutlandır
             preview_size = (400, 500)  # Önizleme boyutu
             template_copy.thumbnail(preview_size, Image.Resampling.LANCZOS)
-
+ 
             # PhotoImage'e çevir
             preview_photo = ImageTk.PhotoImage(template_copy)
-
+ 
             return preview_photo
-
+ 
         except Exception as e:
             print(f"PDF önizleme oluşturma hatası: {e}")
             return None
@@ -854,7 +960,7 @@ class KonuSecmePenceresi(ctk.CTkFrame):
             zorluk_seviyesi = self.zorluk_var.get()
 
             try:
-                from logic.answer_utils import get_answer_for_image
+                
                 cevap = get_answer_for_image(gorsel_path)
             except ImportError:
                 cevap = "?"
@@ -914,7 +1020,7 @@ class KonuSecmePenceresi(ctk.CTkFrame):
             # Hata durumunda ünite seçimine dön
             self.unite_sec_sayfasina_don()
 
-    def pdf_olustur(self, konu, zorluk):
+    def pdf_olustur(self, konu,soru_tipi, zorluk):
         """PDF oluştur ve kullanıcıya bildir"""
        
         try:
@@ -933,7 +1039,7 @@ class KonuSecmePenceresi(ctk.CTkFrame):
     
             # PDF generator'ı import etmeyi dene
             try:
-                from logic.pdf_generator import PDFCreator
+                
                 print("✅ PDFCreator başarıyla import edildi")
             except ImportError as e:
                 print(f"❌ PDFCreator import hatası: {e}")
@@ -950,13 +1056,13 @@ class KonuSecmePenceresi(ctk.CTkFrame):
                     sys.path.append(logic_path)
                 
                 try:
-                    from logic.pdf_generator import PDFCreator
+                    
                     print("✅ PDFCreator alternatif yolla import edildi")
                 except ImportError as e2:
                     print(f"❌ Alternatif import de başarısız: {e2}")
                     
                     # Son çare: Dosyayı doğrudan çalıştır
-                    self.basit_pdf_olustur(konu, zorluk)
+                    self.basit_pdf_olustur(konu,soru_tipi, zorluk)
                     return
     
             # Cevap bilgisini almak için modülü import et
@@ -969,7 +1075,11 @@ class KonuSecmePenceresi(ctk.CTkFrame):
             
             # PDF oluştur
             pdf = PDFCreator()
-            pdf.baslik_ekle(f"{konu} - {zorluk} Seviyesi")
+            pdf.soru_tipi = soru_tipi  # Soru tipini ayarla
+            pdf.baslik_ekle(f"{konu} - {soru_tipi} - {zorluk} Seviyesi")
+
+            # Debug için
+            print(f"UI'dan PDF'e geçen soru tipi: {soru_tipi}")
     
             # Tüm görselleri ve cevapları ekle
             cevaplar = []
@@ -1018,7 +1128,7 @@ class KonuSecmePenceresi(ctk.CTkFrame):
                 f"Beklenmeyen bir hata oluştu:\n{str(e)}\n\nLütfen konsolu kontrol edin."
             )
 
-    def basit_pdf_olustur(self, konu, zorluk):
+    def basit_pdf_olustur(self, konu,soru_tipi, zorluk):
         """Basit PDF oluşturma - PDFCreator sınıfı import edilemediğinde"""
         try:
             from reportlab.lib.pagesizes import letter
@@ -1046,6 +1156,7 @@ class KonuSecmePenceresi(ctk.CTkFrame):
             if not cikti_dosya:
                 return
 
+            print(f"Basit PDF - Soru tipi: {soru_tipi}")
             # PDF oluştur
             story = []
             styles = getSampleStyleSheet()

@@ -3,4 +3,6 @@ Eklenecek özellikler :
     bunu hallettim show_notification ve gorseli kaldır fonksiyonu ile alakalı
 
 2-Test pdf Şablonu ön izlemeye Eklenecek
+    yapıldı
+
 3-Yapılabilirse pdfte sorular arasındaki boşluk arttırılmalı

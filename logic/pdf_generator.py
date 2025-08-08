@@ -9,118 +9,192 @@ from PIL import Image as PILImage
 import os
 import json
 import math
+import logging
+from datetime import datetime
 
 class PDFCreator:
     def __init__(self):
         self.gorsel_listesi = []
         self.baslik_metni = ""
         self.cevap_listesi = []
+        self.soru_tipi = "test"
+        
+        # Logger oluştur
+        self.logger = self._setup_logger()
     
+    def _setup_logger(self):
+        """Logger kurulumu"""
+        logger = logging.getLogger('PDFCreator')
+        logger.setLevel(logging.INFO)
+        
+        # Eğer handler yoksa ekle (tekrar eklenmesini önler)
+        if not logger.handlers:
+            # Console handler
+            console_handler = logging.StreamHandler()
+            console_handler.setLevel(logging.INFO)
+            
+            # Formatter - dosya ve satır bilgisi ile
+            formatter = logging.Formatter(
+                '%(asctime)s | %(name)s | %(levelname)s | %(filename)s:%(lineno)d | %(funcName)s() | %(message)s',
+                datefmt='%H:%M:%S'
+            )
+            console_handler.setFormatter(formatter)
+            logger.addHandler(console_handler)
+        
+        return logger
+
     def baslik_ekle(self, baslik):
         """PDF başlığını ayarla"""
         self.baslik_metni = baslik
+        self.logger.info(f"PDF başlığı ayarlandı: {baslik}")
     
     def gorsel_ekle(self, gorsel_yolu, cevap=None):
         """Görsel listesine ekle"""
         self.gorsel_listesi.append(gorsel_yolu)
         if cevap:
             self.cevap_listesi.append(cevap)
+        self.logger.debug(f"Görsel eklendi: {os.path.basename(gorsel_yolu)} (Cevap: {cevap or 'Yok'})")
     
     def cevap_anahtari_ekle(self, cevaplar):
         """Cevap listesini ayarla"""
         self.cevap_listesi = cevaplar
+        self.logger.info(f"Cevap anahtarı eklendi ({len(cevaplar)} cevap)")
     
     def create_template_page(self, canvas_obj, gorseller, sayfa_no, template_path):
         """Şablonu kullanarak bir sayfa oluştur"""
         try:
-            # Şablon boyutları (1414x2000 -> A4'e dönüştür)
+            self.logger.info(f"Sayfa {sayfa_no} oluşturuluyor ({len(gorseller)} soru)")
             page_width, page_height = A4
-            
+
             # Şablonu arka plan olarak ekle
             if os.path.exists(template_path):
                 canvas_obj.drawImage(template_path, 0, 0, width=page_width, height=page_height)
-            
-            # 2x4 grid koordinatları (A4 boyutuna göre ayarlanmış)
-            top_margin = page_height * 0.1  # %15 üst margin
-            left_margin = page_width * 0.05   # %5 sol margin
-            right_margin = page_width * 0.01  # %5 sağ margin
-            bottom_margin = page_height * 0.1 # %10 alt margin
-            
-            # Kullanılabilir alan
-            usable_width = page_width - left_margin - right_margin
-            usable_height = page_height - top_margin - bottom_margin
-            
-            # Her soru için alan
-            soru_width = usable_width / 2 - 10  # 10pt gap
-            soru_height = usable_height / 4 - 40 # 15pt gap
-            
-            # Görselleri yerleştir
-            for i, gorsel_path in enumerate(gorseller):
-                if i >= 8:  # Sayfa başına maksimum 8 soru
-                    break
-                
-                try:
-                    # Grid pozisyonu
-                    row = i % 4
-                    col = i // 4
-                    
-                    # Koordinatları hesapla (Y koordinatı ters çevrilmeli - PDF koordinat sistemi)
-                    x = left_margin + col * (soru_width + 10)
-                    y = page_height - top_margin - (row + 1) * (soru_height + 15)
-                    
-                    # PIL ile görseli yükle ve boyutlandır
-                    with PILImage.open(gorsel_path) as img:
-                        # Aspect ratio koruyarak boyutlandır
-                        img_ratio = img.width / img.height
-                        target_ratio = soru_width / soru_height
-                        
-                        if img_ratio > target_ratio:
-                            # Görsel daha geniş, genişliğe göre boyutlandır
-                            new_width = soru_width
-                            new_height = soru_width / img_ratio
-                        else:
-                            # Görsel daha uzun, yüksekliğe göre boyutlandır
-                            new_height = soru_height
-                            new_width = soru_height * img_ratio
-                        
-                        # Görseli ortalamak için offset hesapla
-                        x_offset = (soru_width - new_width) / 2
-                        y_offset = (soru_height - new_height) / 2
-                        
-                        # Görseli çiz
-                        canvas_obj.drawImage(
-                            gorsel_path,
-                            x + x_offset,
-                            y + y_offset,
-                            width=new_width,
-                            height=new_height
-                        )
-                        
-                        # Soru numarası ekle
-                        soru_no = (sayfa_no - 1) * 8 + i + 1
-                        # Arka plan daire çiz (sarı/turuncu)
-                        # canvas_obj.setFillColor(colors.orange)
-                        # canvas_obj.circle(x - 5, y + soru_height - 5, 6, fill=1)
+                self.logger.debug(f"Şablon yüklendi: {os.path.basename(template_path)}")
+            else:
+                self.logger.error(f"Şablon bulunamadı: {template_path}")
+                return
 
-                        # Numarayı beyaz renkle dairenin içine yaz
-                        canvas_obj.setFillColor(colors.black)
-                        canvas_obj.setFont("Helvetica-Bold", 10)
-                        num_text = str(soru_no)
-                        text_width = canvas_obj.stringWidth(num_text, "Helvetica-Bold", 10)
-                        canvas_obj.drawString(x - 5 - text_width/2, y + soru_height - 10, num_text)
+            # Soru tipine göre layout
+            if self.soru_tipi.lower() == "yazili":
+                self._create_yazili_layout(canvas_obj, gorseller, sayfa_no, page_width, page_height)
+            else:
+                self._create_test_layout(canvas_obj, gorseller, sayfa_no, page_width, page_height)
+            
+            self.logger.info(f"Sayfa {sayfa_no} başarıyla tamamlandı")
 
-                        # Rengi geri siyaha çevir
-                        canvas_obj.setFillColor(colors.black)
-                
-                except Exception as e:
-                    print(f"Soru {i+1} ekleme hatası: {e}")
-                    
         except Exception as e:
-            print(f"Sayfa oluşturma hatası: {e}")
+            self.logger.error(f"Sayfa {sayfa_no} oluşturma hatası: {e}")
     
+    def _create_yazili_layout(self, canvas_obj, gorseller, sayfa_no, page_width, page_height):
+        """Yazılı şablonu layout'u"""
+        self.logger.debug("Yazılı layout uygulanıyor")
+        
+        # Layout hesaplamaları
+        top_margin = page_height * 0.1
+        left_margin = page_width * 0.05
+        right_margin = page_width * 0.05
+        bottom_margin = page_width * 0.05
+        
+        usable_width = page_width - left_margin - right_margin
+        usable_height = page_height - top_margin - bottom_margin
+        
+        soru_ve_cevap_yuksekligi = usable_height / 3
+        soru_height = soru_ve_cevap_yuksekligi * 0.6
+        soru_width = usable_width
+        
+        self.logger.debug(f"Yazılı layout boyutları - Genişlik: {soru_width:.1f}, Yükseklik: {soru_height:.1f}")
+
+        # Görselleri yerleştir
+        for i, gorsel_path in enumerate(gorseller):
+            if i >= 3:  # Yazılı için maksimum 3 soru
+                self.logger.warning(f"Yazılı sayfada maksimum 3 soru gösterilebilir, {len(gorseller)} soru var")
+                break
+
+            try:
+                # Pozisyon hesaplama
+                x = left_margin
+                y = page_height - top_margin - (i + 1) * soru_ve_cevap_yuksekligi + (soru_ve_cevap_yuksekligi - soru_height)
+
+                # Görsel yerleştirme
+                with PILImage.open(gorsel_path) as img:
+                    img_ratio = img.width / img.height
+                    new_width = soru_width
+                    new_height = min(soru_height, soru_width / img_ratio)
+
+                    canvas_obj.drawImage(gorsel_path, x, y, width=new_width, height=new_height)
+
+                    # Soru numarası
+                    soru_no = (sayfa_no - 1) * 3 + i + 1
+                    canvas_obj.setFont("Helvetica-Bold", 12)
+                    canvas_obj.drawString(x + 10, y + new_height - 20, f"{soru_no}.")
+                    
+                    self.logger.debug(f"Yazılı soru {soru_no} yerleştirildi (Boyut: {new_width:.0f}x{new_height:.0f})")
+
+            except Exception as e:
+                self.logger.error(f"Yazılı soru {i+1} yerleştirme hatası: {e}")
+    
+    def _create_test_layout(self, canvas_obj, gorseller, sayfa_no, page_width, page_height):
+        """Test şablonu layout'u"""
+        self.logger.debug("Test layout uygulanıyor")
+        
+        # Layout hesaplamaları
+        top_margin = page_height * 0.1
+        left_margin = page_width * 0.05
+        right_margin = page_width * 0.01
+        bottom_margin = page_height * 0.1
+
+        usable_width = page_width - left_margin - right_margin
+        usable_height = page_height - top_margin - bottom_margin
+
+        soru_width = usable_width / 2 - 10
+        soru_height = usable_height / 4 - 40
+        
+        self.logger.debug(f"Test layout boyutları - Genişlik: {soru_width:.1f}, Yükseklik: {soru_height:.1f}")
+
+        for i, gorsel_path in enumerate(gorseller):
+            if i >= 8:  # Test için maksimum 8 soru
+                self.logger.warning(f"Test sayfada maksimum 8 soru gösterilebilir, {len(gorseller)} soru var")
+                break
+
+            try:
+                # Grid pozisyonu
+                row = i % 4
+                col = i // 4
+
+                x = left_margin + col * (soru_width + 10)
+                y = page_height - top_margin - (row + 1) * (soru_height + 15)
+
+                # Görsel yerleştirme
+                with PILImage.open(gorsel_path) as img:
+                    img_ratio = img.width / img.height
+                    target_ratio = soru_width / soru_height
+
+                    if img_ratio > target_ratio:
+                        new_width = soru_width
+                        new_height = soru_width / img_ratio
+                    else:
+                        new_height = soru_height
+                        new_width = soru_height * img_ratio
+
+                    x_offset = (soru_width - new_width) / 2
+                    y_offset = (soru_height - new_height) / 2
+
+                    canvas_obj.drawImage(gorsel_path, x + x_offset, y + y_offset, width=new_width, height=new_height)
+
+                    # Soru numarası
+                    soru_no = (sayfa_no - 1) * 8 + i + 1
+                    canvas_obj.setFont("Helvetica-Bold", 10)
+                    canvas_obj.drawString(x - 5, y + soru_height - 10, str(soru_no))
+                    
+                    self.logger.debug(f"Test soru {soru_no} yerleştirildi (Konum: {row+1},{col+1})")
+
+            except Exception as e:
+                self.logger.error(f"Test soru {i+1} yerleştirme hatası: {e}")
+
     def create_answer_key_page(self, canvas_obj):
         """Cevap anahtarı sayfası oluştur"""
         try:
+            self.logger.info(f"Cevap anahtarı sayfası oluşturuluyor ({len(self.cevap_listesi)} cevap)")
             page_width, page_height = A4
             
             # Başlık
@@ -131,22 +205,20 @@ class PDFCreator:
             
             # Cevapları tabloda göster
             start_y = page_height - 150
-            col_width = 120
             row_height = 25
             
             # Başlık satırı
             canvas_obj.setFont("Helvetica-Bold", 12)
             canvas_obj.drawString(100, start_y, "Soru No")
             canvas_obj.drawString(200, start_y, "Cevap")
-            
-            # Çizgi çek (başlık altı)
             canvas_obj.line(100, start_y - 5, 300, start_y - 5)
             
             # Cevapları yazdır
             canvas_obj.setFont("Helvetica", 10)
             for i, cevap in enumerate(self.cevap_listesi):
-                y_pos = start_y - (i + 2) * row_height  # +2 çünkü başlık satırı var
+                y_pos = start_y - (i + 2) * row_height
                 if y_pos < 100:  # Sayfa sonu kontrolü
+                    self.logger.debug("Cevap anahtarı yeni sayfaya geçiyor")
                     canvas_obj.showPage()
                     # Yeni sayfada başlık tekrarla
                     canvas_obj.setFont("Helvetica-Bold", 18)
@@ -164,27 +236,41 @@ class PDFCreator:
                 
                 canvas_obj.drawString(100, y_pos, f"{i + 1}")
                 canvas_obj.drawString(200, y_pos, str(cevap))
+            
+            self.logger.info("Cevap anahtarı sayfası tamamlandı")
                 
         except Exception as e:
-            print(f"Cevap anahtarı oluşturma hatası: {e}")
+            self.logger.error(f"Cevap anahtarı oluşturma hatası: {e}")
     
     def kaydet(self, dosya_yolu):
         """Şablonu kullanarak PDF kaydet"""
         try:
-            # Şablon yolunu belirle
-            current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            template_path = os.path.join(current_dir, "templates", "template.png")
+            self.logger.info(f"PDF oluşturma başlatıldı - Soru Tipi: {self.soru_tipi}")
+            self.logger.info(f"Toplam görsel sayısı: {len(self.gorsel_listesi)}")
             
+            # Şablon seçimi
+            current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+            if self.soru_tipi.lower() == "yazili":
+                template_name = "template2.png"
+                sorular_per_sayfa = 3
+                self.logger.info("Yazılı şablonu seçildi")
+            else:
+                template_name = "template.png"
+                sorular_per_sayfa = 8
+                self.logger.info("Test şablonu seçildi")
+
+            template_path = os.path.join(current_dir, "templates", template_name)
+            self.logger.debug(f"Şablon yolu: {template_path}")
+
             if not os.path.exists(template_path):
-                print("Şablon bulunamadı, basit PDF oluşturuluyor...")
+                self.logger.warning("Şablon bulunamadı, basit PDF oluşturuluyor")
                 return self._basit_pdf_olustur(dosya_yolu)
             
             # Canvas oluştur
             c = canvas.Canvas(dosya_yolu, pagesize=A4)
-            
-            # Sayfa başına 8 soru
-            sorular_per_sayfa = 8
             toplam_sayfa = math.ceil(len(self.gorsel_listesi) / sorular_per_sayfa)
+            self.logger.info(f"Toplam {toplam_sayfa} sayfa oluşturulacak")
             
             # Her sayfa için
             for sayfa_no in range(1, toplam_sayfa + 1):
@@ -204,15 +290,17 @@ class PDFCreator:
                 self.create_answer_key_page(c)
             
             c.save()
+            self.logger.info(f"PDF başarıyla kaydedildi: {os.path.basename(dosya_yolu)}")
             return True
             
         except Exception as e:
-            print(f"PDF kaydetme hatası: {e}")
+            self.logger.error(f"PDF kaydetme hatası: {e}")
             return False
     
     def _basit_pdf_olustur(self, dosya_yolu):
         """Şablon bulunamazsa basit PDF oluştur"""
         try:
+            self.logger.info("Basit PDF oluşturma moduna geçildi")
             story = []
             styles = getSampleStyleSheet()
             
@@ -234,7 +322,7 @@ class PDFCreator:
                     
                     story.append(Spacer(1, 0.3*inch))
                 except Exception as e:
-                    print(f"Görsel {i+1} ekleme hatası: {e}")
+                    self.logger.error(f"Basit PDF - Görsel {i+1} ekleme hatası: {e}")
             
             # Cevap anahtarı
             if self.cevap_listesi:
@@ -259,8 +347,9 @@ class PDFCreator:
             
             doc = SimpleDocTemplate(dosya_yolu, pagesize=A4)
             doc.build(story)
+            self.logger.info("Basit PDF başarıyla oluşturuldu")
             return True
             
         except Exception as e:
-            print(f"Basit PDF oluşturma hatası: {e}")
+            self.logger.error(f"Basit PDF oluşturma hatası: {e}")
             return False
