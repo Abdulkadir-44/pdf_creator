@@ -1,0 +1,11 @@
+=== PDF ANALİZ DEBUG ===
+
+🔍 PDF analizi: test_test_10___ekstrem_uzun.pdf
+📄 Sayfa: 1
+📚 Toplam sayfa sayısı: 2
+📏 PDF sayfa boyutu: 595.3 x 841.9 points
+✅ PNG kaydedildi: test_test_10___ekstrem_uzun_sayfa_1.png
+🖼️ PNG boyutu: 1191 x 1684 pixels
+
+🔍 PNG ANALİZİ BAŞLIYOR...
+📏 PNG boyutu: 1191x1684 pixels

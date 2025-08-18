@@ -1,0 +1,95 @@
+=== SAYFA 1 LAYOUT DEBUG ===
+Başlangıç Zamanı: 2025-08-17 22:41:10.792397
+
+[22:41:10.792] [INFO] 🚀 SAYFA 1 LAYOUT BAŞLADI
+[22:41:10.792] [INFO] 📥 Gelen soru sayısı: 3
+[22:41:10.792] [INFO] 📥 Kalan indices: [0, 1, 2]
+[22:41:10.805] [INFO] 📊 Global offset: 0
+[22:41:10.806] [INFO] 📏 SAYFA BOYUTLARI:
+[22:41:10.810] [INFO]    Sayfa: 595x842
+[22:41:10.812] [INFO]    Kullanılabilir: 555x802
+[22:41:10.813] [INFO]    Sütun genişliği: 258
+[22:41:10.813] [INFO]    Sütun arası: 40
+[22:41:10.813] [INFO] 📍 BAŞLANGIÇ POZİSYONLARI:
+[22:41:10.813] [INFO]    Sütun 1: X=20, Y=807
+[22:41:10.813] [INFO]    Sütun 2: X=318, Y=807
+[22:41:10.813] [INFO] 🔍 SORU BOYUT ANALİZİ BAŞLIYOR:
+[22:41:10.813] [INFO]    Soru 1 (11.png):
+[22:41:10.813] [INFO]       Orijinal: 448x708
+[22:41:10.813] [INFO]       Final: 252x399
+[22:41:10.813] [INFO]       Toplam yükseklik: 417px
+[22:41:10.813] [INFO]       Kategori: UZUN
+[22:41:10.813] [INFO]    Soru 2 (12.png):
+[22:41:10.813] [INFO]       Orijinal: 452x748
+[22:41:10.827] [INFO]       Final: 252x418
+[22:41:10.828] [INFO]       Toplam yükseklik: 436px
+[22:41:10.829] [INFO]       Kategori: UZUN
+[22:41:10.831] [INFO]    Soru 3 (13.png):
+[22:41:10.832] [INFO]       Orijinal: 500x754
+[22:41:10.832] [INFO]       Final: 252x381
+[22:41:10.832] [INFO]       Toplam yükseklik: 399px
+[22:41:10.832] [INFO]       Kategori: UZUN
+[22:41:10.832] [INFO] 🎯 YERLEŞTIRME ALGORİTMASI BAŞLIYOR
+[22:41:10.832] [INFO] 
+📊 SÜTUN 1 DOLDURULUYOR...
+[22:41:10.832] [INFO]    🔄 İterasyon 1
+[22:41:10.832] [INFO]    📏 Kalan boşluk: 802px
+[22:41:10.832] [INFO]    ✅ Uygun: Soru 1 (UZUN) - 417px
+[22:41:10.832] [INFO]    ✅ Uygun: Soru 2 (UZUN) - 436px
+[22:41:10.832] [INFO]    ✅ Uygun: Soru 3 (UZUN) - 399px
+[22:41:10.832] [INFO]    🎯 SEÇİLEN: Soru 2
+[22:41:10.832] [INFO]       Dosya: 12.png
+[22:41:10.844] [INFO]       Boyut: 252x418
+[22:41:10.845] [INFO]       Toplam yükseklik: 436px
+[22:41:10.846] [INFO]       Kalan alan: 366px
+[22:41:10.848] [INFO]    📍 POZİSYON:
+[22:41:10.848] [INFO]       Görsel X: 20
+[22:41:10.848] [INFO]       Görsel Y: 371
+[22:41:10.848] [INFO]       Soru numarası Y: 797
+[22:41:10.936] [INFO]    📝 Soru numarası çizildi: 1 (Sütun 1)
+[22:41:10.937] [INFO]    ✅ Görsel başarıyla çizildi
+[22:41:10.939] [INFO]    📊 GÜNCELLEMELER:
+[22:41:10.940] [INFO]       Yeni Y pozisyonu: 361
+[22:41:10.941] [INFO]       Kullanılan sorular: [1]
+[22:41:10.942] [INFO]       Toplam yerleştirilen: 1
+[22:41:10.943] [INFO]    🔄 İterasyon 2
+[22:41:10.944] [INFO]    📏 Kalan boşluk: 356px
+[22:41:10.945] [INFO]    ❌ Sığmaz: Soru 1 (UZUN) - 417px > 356px
+[22:41:10.946] [INFO]    ❌ Sığmaz: Soru 3 (UZUN) - 399px > 356px
+[22:41:10.947] [INFO]    ⚠️ Uygun soru bulunamadı, sütun 1 tamamlandı
+[22:41:10.947] [INFO] 
+📊 SÜTUN 2 DOLDURULUYOR...
+[22:41:10.947] [INFO]    🔄 İterasyon 1
+[22:41:10.947] [INFO]    📏 Kalan boşluk: 802px
+[22:41:10.947] [INFO]    ✅ Uygun: Soru 1 (UZUN) - 417px
+[22:41:10.947] [INFO]    ✅ Uygun: Soru 3 (UZUN) - 399px
+[22:41:10.947] [INFO]    🎯 SEÇİLEN: Soru 1
+[22:41:10.947] [INFO]       Dosya: 11.png
+[22:41:10.947] [INFO]       Boyut: 252x399
+[22:41:10.947] [INFO]       Toplam yükseklik: 417px
+[22:41:10.959] [INFO]       Kalan alan: 385px
+[22:41:10.960] [INFO]    📍 POZİSYON:
+[22:41:10.961] [INFO]       Görsel X: 318
+[22:41:10.964] [INFO]       Görsel Y: 390
+[22:41:10.964] [INFO]       Soru numarası Y: 797
+[22:41:11.013] [INFO]    📝 Soru numarası çizildi: 2 (Sütun 2)
+[22:41:11.013] [INFO]    ✅ Görsel başarıyla çizildi
+[22:41:11.013] [INFO]    📊 GÜNCELLEMELER:
+[22:41:11.013] [INFO]       Yeni Y pozisyonu: 380
+[22:41:11.013] [INFO]       Kullanılan sorular: [0, 1]
+[22:41:11.027] [INFO]       Toplam yerleştirilen: 2
+[22:41:11.028] [INFO]    🔄 İterasyon 2
+[22:41:11.030] [INFO]    📏 Kalan boşluk: 375px
+[22:41:11.030] [INFO]    ❌ Sığmaz: Soru 3 (UZUN) - 399px > 375px
+[22:41:11.030] [INFO]    ⚠️ Uygun soru bulunamadı, sütun 2 tamamlandı
+[22:41:11.030] [INFO] 
+🏁 SAYFA 1 TAMAMLANDI
+[22:41:11.030] [INFO] 📊 SONUÇLAR:
+[22:41:11.030] [INFO]    Toplam gelen soru: 3
+[22:41:11.030] [INFO]    Yerleştirilen: 2
+[22:41:11.030] [INFO]    Kullanılan indices: [0, 1]
+[22:41:11.044] [INFO]    Sonraki sayfaya kalan: 1
+[22:41:11.047] [INFO] 
+📈 SÜTUN DURUMU RAPORU:
+[22:41:11.047] [INFO]    Sütun 1: Kullanılan=446px, Kalan=356px
+[22:41:11.047] [INFO]    Sütun 2: Kullanılan=427px, Kalan=375px

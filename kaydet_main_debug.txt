@@ -1,0 +1,54 @@
+=== PDF KAYDETME DEBUG - 2025-08-17 22:41:10.646603 ===
+
+[22:41:10] 📁 Şablon yolu: C:\Users\abdul\Desktop\pdf_creator\templates\template3.png
+[22:41:10] 📁 Şablon var mı: True
+[22:41:10] 📋 BAŞLANGIÇ DURUMU:
+[22:41:10]    Toplam soru: 3
+[22:41:10]    Soru tipi: test
+[22:41:10]    Maksimum sayfa: 50
+[22:41:10]    Global soru sayacı: 0
+[22:41:10] 📝 SORU LİSTESİ:
+[22:41:10]    1: 11.png
+[22:41:10]    2: 12.png
+[22:41:10]    3: 13.png
+[22:41:10] 
+==================================================
+[22:41:10] 📄 SAYFA 1 İŞLENİYOR
+[22:41:10]    Kalan sorular: [0, 1, 2]
+[22:41:10]    Kalan soru sayısı: 3
+[22:41:10]    Mevcut global sayaç: 0
+[22:41:10] ✅ Şablon çizildi
+[22:41:10] 📝 Bu sayfada işlenecek sorular:
+[22:41:10]    Local 0 -> Global 0: 11.png
+[22:41:10]    Local 1 -> Global 1: 12.png
+[22:41:10]    Local 2 -> Global 2: 13.png
+[22:41:11] 📊 SAYFA 1 SONUÇLARI:
+[22:41:11]    Yerleştirilen soru sayısı: 2
+[22:41:11]    Kullanılan global indices: [0, 1]
+[22:41:11]    🔢 Global sayaç güncellendi: 2
+[22:41:11] 🔄 DURUM GÜNCELLEMESİ:
+[22:41:11]    Önceki kalan: [0, 1, 2]
+[22:41:11]    Kullanılan: [0, 1]
+[22:41:11]    Yeni kalan: [2]
+[22:41:11] 📄 Yeni sayfa oluşturuldu
+[22:41:11] 
+==================================================
+[22:41:11] 📄 SAYFA 2 İŞLENİYOR
+[22:41:11]    Kalan sorular: [2]
+[22:41:11]    Kalan soru sayısı: 1
+[22:41:11]    Mevcut global sayaç: 2
+[22:41:11] ✅ Şablon çizildi
+[22:41:11] 📝 Bu sayfada işlenecek sorular:
+[22:41:11]    Local 0 -> Global 2: 13.png
+[22:41:11] 📊 SAYFA 2 SONUÇLARI:
+[22:41:11]    Yerleştirilen soru sayısı: 1
+[22:41:11]    Kullanılan global indices: [2]
+[22:41:11]    🔢 Global sayaç güncellendi: 3
+[22:41:11] 🔄 DURUM GÜNCELLEMESİ:
+[22:41:11]    Önceki kalan: [2]
+[22:41:11]    Kullanılan: [2]
+[22:41:11]    Yeni kalan: []
+[22:41:11] ✅ Tüm sorular tamamlandı
+[22:41:11] 💾 PDF kaydedildi: test_results/test_test_10___ekstrem_uzun.pdf
+[22:41:11] 🎉 İŞLEM TAMAMLANDI
+[22:41:11] 🔢 Toplam soru sayısı: 3

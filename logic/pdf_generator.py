@@ -240,84 +240,518 @@ class PDFCreator:
             self.logger.error(f"Sayfa {sayfa_no} oluşturma hatası: {e}")
             return 0
 
-    def _create_working_test_layout(self, canvas_obj, gorseller, sayfa_no, page_width, page_height):
-        """Dinamik layout ile soruları sayfaya yerleştirir (flow layout mantığı)"""
-
-        # Sayfa margin ve sütun ayarları
-        top_margin = 50
-        bottom_margin = 50
-        left_margin = 25
-        right_margin = 25
-        col_gap = 30
-
-        usable_width = page_width - left_margin - right_margin
-        usable_height = page_height - top_margin - bottom_margin
-
-        # 2 sütun genişliği
-        cols = 2
-        col_width = (usable_width - col_gap) / cols
-
-        # Başlangıç konumları
-        current_x_positions = [left_margin, left_margin + col_width + col_gap]  # 2 sütunun x pozisyonu
-        current_y_positions = [page_height - top_margin, page_height - top_margin]  # her sütun için y başlangıcı
-
-        yerlestirilen = 0
-        soru_no = (sayfa_no - 1) * 8 + 1  # soru numarası başlangıcı
-
+    def _analiz_soru_boyutlari(self, gorseller, col_width):
+        """Görselleri boyutlarına göre analiz et ve kategorize et"""
+        soru_analizi = []
+        
         for i, gorsel_path in enumerate(gorseller):
             try:
-                # Görsel boyut bilgisi al
                 with PILImage.open(gorsel_path) as img:
                     original_width = img.width
                     original_height = img.height
                     img_ratio = original_width / original_height
-
-                # Görseli sütun genişliğine göre orantılı küçült
-                final_width = col_width * 0.95
-                final_height = final_width / img_ratio
-
-                # Hangi sütuna yerleşecek? -> daha yüksek olan değil, daha fazla boşluğu olan
-                column_index = 0 if current_y_positions[0] > current_y_positions[1] else 1
-
-                # Mevcut sütunun Y pozisyonu
-                new_y = current_y_positions[column_index] - final_height - 20  # altına biraz boşluk
-
-                # Eğer bu görsel sığmazsa, yeni sayfa aç
-                if new_y < bottom_margin:
-                    # Yeni sayfa
-                    canvas_obj.showPage()
-                    sayfa_no += 1
-                    self.logger.info(f"📄 Yeni sayfa oluşturuldu: {sayfa_no}")
-
-                    # Pozisyonları resetle
-                    current_y_positions = [page_height - top_margin, page_height - top_margin]
-                    column_index = 0
-                    new_y = current_y_positions[column_index] - final_height - 20
-
-                # Pozisyon X
-                img_x = current_x_positions[column_index]
-                img_y = new_y
-
-                # Görseli çiz
-                canvas_obj.drawImage(gorsel_path, img_x, img_y, width=final_width, height=final_height)
-
-                # Soru numarasını yaz
-                canvas_obj.setFont("Helvetica-Bold", 12)
-                canvas_obj.setFillColor("#333333")
-                canvas_obj.drawString(img_x - 15, img_y + final_height + 5, f"{soru_no}.")
-
-                # Y pozisyonunu güncelle
-                current_y_positions[column_index] = img_y - 10  # yeni görselin altına boşluk bırak
-
-                self.logger.info(f"✅ Soru {soru_no} yerleştirildi (Sütun {column_index+1})")
-                soru_no += 1
-                yerlestirilen += 1
-
+                    
+                    # Tahmini yükseklik hesapla
+                    final_width = col_width * 0.98
+                    tahmini_yukseklik = final_width / img_ratio
+                    
+                    # Soru tipini belirle
+                    if tahmini_yukseklik < 180:
+                        tip = 'kisa'
+                    elif tahmini_yukseklik < 350:
+                        tip = 'orta'
+                    else:
+                        tip = 'uzun'
+                    
+                    soru_analizi.append({
+                        'index': i,
+                        'path': gorsel_path,
+                        'original_width': original_width,
+                        'original_height': original_height,
+                        'ratio': img_ratio,
+                        'tahmini_yukseklik': tahmini_yukseklik,
+                        'final_width': final_width,
+                        'tip': tip,
+                        'alan': tahmini_yukseklik * final_width
+                    })
+                    
+                    self.logger.debug(f"Soru {i+1}: {tip} - {tahmini_yukseklik:.0f}px")
+                    
             except Exception as e:
-                self.logger.error(f"❌ Görsel yerleştirme hatası: {e}")
-                continue
+                self.logger.error(f"Soru {i+1} analiz hatası: {e}")
+                # Fallback değerler
+                soru_analizi.append({
+                    'index': i,
+                    'path': gorsel_path,
+                    'original_width': 400,
+                    'original_height': 300,
+                    'ratio': 4/3,
+                    'tahmini_yukseklik': 250,
+                    'final_width': col_width * 0.98,
+                    'tip': 'orta',
+                    'alan': 250 * col_width * 0.98
+                })
+        
+        return soru_analizi
 
-        return yerlestirilen
+    def _akilli_soru_sec_v2(self, soru_analizi, kullanilmayan_indices, sutun_boslugu, sutun_index, sutun_durumu, min_bosluk=100):
+        """GELIŞMIŞ akıllı soru seçme - Sütun dengesi koruyan versiyon"""
+        
+        # Sadece kullanılmayan soruları filtrele
+        uygun_sorular = [s for s in soru_analizi if s['index'] in kullanilmayan_indices]
+        
+        if not uygun_sorular:
+            return None
+            
+        # Soru numarası için alan + görsel + boşluk
+        soru_spacing = 35
+        
+        # SÜTUN DENGESİ KONTROLÜ
+        sol_sutun_yukseklik = sutun_durumu[0]  # Sol sütunun kullanılan yüksekliği
+        sag_sutun_yukseklik = sutun_durumu[1]  # Sağ sütunun kullanılan yüksekliği
+        
+        yukseklik_farki = abs(sol_sutun_yukseklik - sag_sutun_yukseklik)
+        
+        # Eğer sütunlar arasında büyük fark varsa, kısa sütuna öncelik ver
+        dengesiz_durum = yukseklik_farki > 150  # 150px'den fazla fark varsa dengesiz
+        
+        if dengesiz_durum:
+            # Hangi sütun daha boş?
+            if sol_sutun_yukseklik < sag_sutun_yukseklik and sutun_index == 0:
+                # Sol sütun daha boş ve şu an sol sütuna yerleştiriyoruz - ÖNCELIK VER
+                self.logger.debug(f"🔄 Sol sütun dengeleme modu (fark: {yukseklik_farki:.0f}px)")
+                tercih_tipi = "buyuk"  # Büyük soru tercih et
+            elif sag_sutun_yukseklik < sol_sutun_yukseklik and sutun_index == 1:
+                # Sağ sütun daha boş ve şu an sağ sütuna yerleştiriyoruz - ÖNCELIK VER  
+                self.logger.debug(f"🔄 Sağ sütun dengeleme modu (fark: {yukseklik_farki:.0f}px)")
+                tercih_tipi = "buyuk"  # Büyük soru tercih et
+            else:
+                # Dolu sütuna küçük soru koy
+                tercih_tipi = "kucuk"
+        else:
+            # Normal durum - en uygun soruyu seç
+            tercih_tipi = "normal"
+        
+        # Sığan ve sığmayan soruları ayır
+        sigan_sorular = []
+        sigmayan_sorular = []
+        
+        for soru in uygun_sorular:
+            toplam_yukseklik = soru['tahmini_yukseklik'] + soru_spacing
+            
+            if toplam_yukseklik <= sutun_boslugu:
+                sigan_sorular.append(soru)
+            else:
+                sigmayan_sorular.append(soru)
+        
+        # TERCİH TİPİNE GÖRE SEÇME
+        if tercih_tipi == "buyuk" and sigan_sorular:
+            # En büyük soruyu seç (dengeleme için)
+            secilen = max(sigan_sorular, key=lambda x: x['alan'])
+            self.logger.debug(f"🎯 Dengeleme - büyük soru: {secilen['index']+1} ({secilen['tip']})")
+            return secilen
+            
+        elif tercih_tipi == "kucuk" and sigan_sorular:
+            # En küçük soruyu seç (dolu sütun için)
+            kucuk_sorular = [s for s in sigan_sorular if s['tip'] in ['kisa', 'orta']]
+            if kucuk_sorular:
+                secilen = min(kucuk_sorular, key=lambda x: x['alan'])
+                self.logger.debug(f"🎯 Dengeleme - küçük soru: {secilen['index']+1} ({secilen['tip']})")
+                return secilen
+        
+        # Normal tercih - sığan sorular arasından en büyüğü
+        if sigan_sorular:
+            secilen = max(sigan_sorular, key=lambda x: x['alan'])
+            self.logger.debug(f"✅ Normal seçim: {secilen['index']+1} ({secilen['tip']})")
+            return secilen
+        
+        # Sığan soru yoksa, en küçük taşan soruyu seç
+        if sigmayan_sorular:
+            secilen = min(sigmayan_sorular, key=lambda x: x['tahmini_yukseklik'])
+            toplam_yukseklik = secilen['tahmini_yukseklik'] + soru_spacing
+            
+            if toplam_yukseklik <= sutun_boslugu * 1.3:  # %30 taşma toleransı (azaltıldı)
+                self.logger.debug(f"⚠️ Küçük taşma: {secilen['index']+1} ({secilen['tip']})")
+                return secilen
+        
+        return None
+
+    def create_working_test_layout(self, canvas_obj, gorseller, kalan_indices, sayfa_no, page_width, page_height, global_offset=0, template_config=None):
+        """DEBUG VERSİYONU - Detaylı log ile problem tespiti"""
+    
+        # Debug dosyası oluştur
+        debug_dosyasi = f"debug_layout_sayfa_{sayfa_no}.txt"
+    
+        def debug_log(msg, level="INFO"):
+            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            log_msg = f"[{timestamp}] [{level}] {msg}"
+            print(log_msg)
+            with open(debug_dosyasi, 'a', encoding='utf-8') as f:
+                f.write(log_msg + '\n')
+    
+        # Debug dosyasını temizle
+        with open(debug_dosyasi, 'w', encoding='utf-8') as f:
+            f.write(f"=== SAYFA {sayfa_no} LAYOUT DEBUG ===\n")
+            f.write(f"Başlangıç Zamanı: {datetime.now()}\n\n")
+    
+        debug_log(f"🚀 SAYFA {sayfa_no} LAYOUT BAŞLADI")
+        debug_log(f"📥 Gelen soru sayısı: {len(gorseller)}")
+        debug_log(f"📥 Kalan indices: {kalan_indices}")
+        debug_log(f"📊 Global offset: {global_offset}")
+    
+        # Şablon konfigürasyonu
+        if template_config is None:
+            template_config = {
+                'top_margin': 35,
+                'bottom_margin': 5,
+                'left_margin': 20,
+                'right_margin': 20,
+                'col_gap': 40,
+                'cols': 2,
+                'soru_font_size': 10,
+                'soru_spacing': 8,
+                'image_spacing': 10
+            }
+    
+        # Layout hesaplamaları
+        top_margin = template_config['top_margin']
+        bottom_margin = template_config['bottom_margin']
+        left_margin = template_config['left_margin']
+        right_margin = template_config['right_margin']
+        col_gap = template_config['col_gap']
+        cols = template_config['cols']
+    
+        usable_width = page_width - left_margin - right_margin
+        col_width = (usable_width - col_gap) / cols
+        usable_height = page_height - top_margin - bottom_margin
+    
+        debug_log(f"📏 SAYFA BOYUTLARI:")
+        debug_log(f"   Sayfa: {page_width:.0f}x{page_height:.0f}")
+        debug_log(f"   Kullanılabilir: {usable_width:.0f}x{usable_height:.0f}")
+        debug_log(f"   Sütun genişliği: {col_width:.0f}")
+        debug_log(f"   Sütun arası: {col_gap}")
+    
+        # Başlangıç pozisyonları
+        current_x_positions = [left_margin + i * (col_width + col_gap) for i in range(cols)]
+        current_y_positions = [page_height - top_margin for _ in range(cols)]
+    
+        debug_log(f"📍 BAŞLANGIÇ POZİSYONLARI:")
+        for i in range(cols):
+            debug_log(f"   Sütun {i+1}: X={current_x_positions[i]:.0f}, Y={current_y_positions[i]:.0f}")
+    
+        # Gelen veri kontrolü
+        if len(gorseller) != len(kalan_indices):
+            debug_log(f"🚨 HATA: gorseller({len(gorseller)}) ve kalan_indices({len(kalan_indices)}) eşleşmiyor!", "ERROR")
+            return 0, set()
+    
+        # Soru boyut analizi - DETAYLI
+        soru_analizi = []
+        debug_log(f"🔍 SORU BOYUT ANALİZİ BAŞLIYOR:")
+    
+        for i, gorsel_path in enumerate(gorseller):
+            try:
+                with PILImage.open(gorsel_path) as img:
+                    original_width = img.width
+                    original_height = img.height
+                    img_ratio = original_width / original_height
+    
+                    # Final boyutları hesapla
+                    final_width = col_width * 0.98  # %98 sütun genişliği kullan
+                    final_height = final_width / img_ratio
+    
+                    # Toplam yükseklik (soru numarası + boşluk + görsel + boşluk)
+                    # template_config['soru_font_size'] + 
+                    total_height = (final_height + 
+                                    template_config['soru_spacing']+
+                                    template_config['image_spacing'])
+    
+                    # Soru kategorisi
+                    if total_height < 150:
+                        kategori = 'KISA'
+                    elif total_height < 300:
+                        kategori = 'ORTA'
+                    else:
+                        kategori = 'UZUN'
+    
+                    soru_info = {
+                        'local_index': i,
+                        'global_index': kalan_indices[i],
+                        'path': gorsel_path,
+                        'filename': os.path.basename(gorsel_path),
+                        'original_size': (original_width, original_height),
+                        'final_size': (final_width, final_height),
+                        'total_height': total_height,
+                        'kategori': kategori,
+                        'ratio': img_ratio
+                    }
+    
+                    soru_analizi.append(soru_info)
+    
+                    debug_log(f"   Soru {kalan_indices[i]+1} ({os.path.basename(gorsel_path)}):")
+                    debug_log(f"      Orijinal: {original_width}x{original_height}")
+                    debug_log(f"      Final: {final_width:.0f}x{final_height:.0f}")
+                    debug_log(f"      Toplam yükseklik: {total_height:.0f}px")
+                    debug_log(f"      Kategori: {kategori}")
+    
+            except Exception as e:
+                debug_log(f"🚨 Soru {i+1} analiz hatası: {e}", "ERROR")
+                # Fallback değerler
+                soru_info = {
+                    'local_index': i,
+                    'global_index': kalan_indices[i],
+                    'path': gorsel_path,
+                    'filename': os.path.basename(gorsel_path),
+                    'original_size': (400, 300),
+                    'final_size': (col_width * 0.98, 250),
+                    'total_height': 300,
+                    'kategori': 'ORTA',
+                    'ratio': 4/3
+                }
+                soru_analizi.append(soru_info)
+    
+        # Yerleştirme algoritması - DETAYLI DEBUG
+        kullanilan_global_indices = set()
+        yerlestirildi_sayisi = 0
+    
+        debug_log(f"🎯 YERLEŞTIRME ALGORİTMASI BAŞLIYOR")
+    
+        # Her sütunu sırayla doldur
+        for sutun_index in range(cols):
+            debug_log(f"\n📊 SÜTUN {sutun_index+1} DOLDURULUYOR...")
+    
+            iteration = 0
+            while True:
+                iteration += 1
+                debug_log(f"   🔄 İterasyon {iteration}")
+    
+                # Kalan boşluk hesapla
+                kalan_bosluk = current_y_positions[sutun_index] - bottom_margin
+                debug_log(f"   📏 Kalan boşluk: {kalan_bosluk:.0f}px")
+    
+                if kalan_bosluk < 50:
+                    debug_log(f"   ⛔ Sütun {sutun_index+1} dolu (yeterli alan yok)")
+                    break
+    
+                # Uygun soruları bul
+                uygun_sorular = []
+                for soru in soru_analizi:
+                    global_i = soru['global_index']
+    
+                    # Zaten kullanıldı mı?
+                    if global_i in kullanilan_global_indices:
+                        continue
+    
+                    # Sığar mı?
+                    if soru['total_height'] <= kalan_bosluk:
+                        uygun_sorular.append(soru)
+                        debug_log(f"   ✅ Uygun: Soru {global_i+1} ({soru['kategori']}) - {soru['total_height']:.0f}px")
+                    else:
+                        debug_log(f"   ❌ Sığmaz: Soru {global_i+1} ({soru['kategori']}) - {soru['total_height']:.0f}px > {kalan_bosluk:.0f}px")
+    
+                if not uygun_sorular:
+                    debug_log(f"   ⚠️ Uygun soru bulunamadı, sütun {sutun_index+1} tamamlandı")
+                    break
+    
+                # Best-fit: En iyi sığan soruyu seç
+                secilen_soru = min(uygun_sorular, key=lambda s: (kalan_bosluk - s['total_height']))
+    
+                debug_log(f"   🎯 SEÇİLEN: Soru {secilen_soru['global_index']+1}")
+                debug_log(f"      Dosya: {secilen_soru['filename']}")
+                debug_log(f"      Boyut: {secilen_soru['final_size'][0]:.0f}x{secilen_soru['final_size'][1]:.0f}")
+                debug_log(f"      Toplam yükseklik: {secilen_soru['total_height']:.0f}px")
+                debug_log(f"      Kalan alan: {kalan_bosluk - secilen_soru['total_height']:.0f}px")
+    
+                # Pozisyon hesapla
+                img_x = current_x_positions[sutun_index]
+                soru_y = current_y_positions[sutun_index] - template_config['soru_font_size']
+                img_y = soru_y - template_config['soru_spacing'] - secilen_soru['final_size'][1]
+    
+                debug_log(f"   📍 POZİSYON:")
+                debug_log(f"      Görsel X: {img_x:.0f}")
+                debug_log(f"      Görsel Y: {img_y:.0f}")
+                debug_log(f"      Soru numarası Y: {soru_y:.0f}")
+    
+                # Görseli çiz
+                try:
+                    canvas_obj.drawImage(
+                        secilen_soru['path'],
+                        img_x,
+                        img_y,
+                        width=secilen_soru['final_size'][0],
+                        height=secilen_soru['final_size'][1]
+                    )
+    
+                    # Soru numarasını çiz
+                    canvas_obj.setFont("Helvetica-Bold", template_config['soru_font_size'])
+                    canvas_obj.setFillColor("#333333")  # Koyu gri renk
+                    
+                    # Global sıralı numara hesapla
+                    toplam_soru_no = global_offset + yerlestirildi_sayisi + 1
+                    cift_haneli_offset = -2 if toplam_soru_no >= 10 else 0  # Çift haneli ise 2px sola
+    
+                    if sutun_index == 0:  # Sol sütun
+                        numara_x = img_x - 10 + cift_haneli_offset
+                        numara_y = img_y + secilen_soru['final_size'][1] - 10  
+                    else:  # Sağ sütun
+                        numara_x = img_x - 10 + cift_haneli_offset
+                        numara_y = img_y + secilen_soru['final_size'][1] - 10
+    
+                    canvas_obj.drawString(numara_x, numara_y, f"{toplam_soru_no}.")
+    
+                    debug_log(f"   📝 Soru numarası çizildi: {toplam_soru_no} (Sütun {sutun_index+1})")
+                    debug_log(f"   ✅ Görsel başarıyla çizildi")
+    
+                except Exception as e:
+                    debug_log(f"   🚨 Görsel çizim hatası: {e}", "ERROR")
+                    continue
+    
+                # Güncellemeler
+                current_y_positions[sutun_index] = img_y - template_config['image_spacing']
+                kullanilan_global_indices.add(secilen_soru['global_index'])
+                yerlestirildi_sayisi += 1
+    
+                debug_log(f"   📊 GÜNCELLEMELER:")
+                debug_log(f"      Yeni Y pozisyonu: {current_y_positions[sutun_index]:.0f}")
+                debug_log(f"      Kullanılan sorular: {sorted(kullanilan_global_indices)}")
+                debug_log(f"      Toplam yerleştirilen: {yerlestirildi_sayisi}")
+    
+        # Final sonuçlar
+        debug_log(f"\n🏁 SAYFA {sayfa_no} TAMAMLANDI")
+        debug_log(f"📊 SONUÇLAR:")
+        debug_log(f"   Toplam gelen soru: {len(gorseller)}")
+        debug_log(f"   Yerleştirilen: {yerlestirildi_sayisi}")
+        debug_log(f"   Kullanılan indices: {sorted(kullanilan_global_indices)}")
+        debug_log(f"   Sonraki sayfaya kalan: {len(gorseller) - yerlestirildi_sayisi}")
+    
+        # SÜTUN DURUMU RAPORU
+        debug_log(f"\n📈 SÜTUN DURUMU RAPORU:")
+        for i in range(cols):
+            kullanilan_yukseklik = (page_height - top_margin) - current_y_positions[i]
+            kalan_alan = current_y_positions[i] - bottom_margin
+            debug_log(f"   Sütun {i+1}: Kullanılan={kullanilan_yukseklik:.0f}px, Kalan={kalan_alan:.0f}px")
+    
+        return yerlestirildi_sayisi, kullanilan_global_indices
+    
+    def kaydet(self, dosya_yolu):
+        """Debug versiyonlu kaydet fonksiyonu"""
+        try:
+            print(f"🚀 PDF OLUŞTURMA BAŞLIYOR - DEBUG MODE")
+    
+            # Global soru sayacı
+            self.global_soru_sayaci = 0
+    
+            # Ana debug dosyası
+            main_debug_file = "kaydet_main_debug.txt"
+            with open(main_debug_file, 'w', encoding='utf-8') as f:
+                f.write(f"=== PDF KAYDETME DEBUG - {datetime.now()} ===\n\n")
+    
+            def main_debug_log(msg):
+                log_msg = f"[{datetime.now().strftime('%H:%M:%S')}] {msg}"
+                print(log_msg)
+                with open(main_debug_file, 'a', encoding='utf-8') as f:
+                    f.write(log_msg + '\n')
+    
+            # Şablon kontrolü
+            current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            template_name = "template2.png" if self.soru_tipi.lower() == "yazili" else "template3.png"
+            template_path = os.path.join(current_dir, "templates", template_name)
+    
+            main_debug_log(f"📁 Şablon yolu: {template_path}")
+            main_debug_log(f"📁 Şablon var mı: {os.path.exists(template_path)}")
+    
+            if not os.path.exists(template_path):
+                main_debug_log("⚠️ Şablon bulunamadı, basit PDF oluşturuluyor")
+                return self._basit_pdf_olustur(dosya_yolu)
+    
+            # PDF Canvas oluştur
+            c = canvas.Canvas(dosya_yolu, pagesize=A4)
+            kalan_sorular = list(range(len(self.gorsel_listesi)))
+            sayfa_no = 1
+            max_sayfa = 50
+    
+            main_debug_log(f"📋 BAŞLANGIÇ DURUMU:")
+            main_debug_log(f"   Toplam soru: {len(self.gorsel_listesi)}")
+            main_debug_log(f"   Soru tipi: {self.soru_tipi}")
+            main_debug_log(f"   Maksimum sayfa: {max_sayfa}")
+            main_debug_log(f"   Global soru sayacı: {self.global_soru_sayaci}")
+    
+            # Soru listesi detayı
+            main_debug_log(f"📝 SORU LİSTESİ:")
+            for i, soru_path in enumerate(self.gorsel_listesi):
+                main_debug_log(f"   {i+1}: {os.path.basename(soru_path)}")
+    
+            # Ana döngü
+            while kalan_sorular and sayfa_no <= max_sayfa:
+                main_debug_log(f"\n{'='*50}")
+                main_debug_log(f"📄 SAYFA {sayfa_no} İŞLENİYOR")
+                main_debug_log(f"   Kalan sorular: {kalan_sorular}")
+                main_debug_log(f"   Kalan soru sayısı: {len(kalan_sorular)}")
+                main_debug_log(f"   Mevcut global sayaç: {self.global_soru_sayaci}")
+    
+                # Şablonu çiz
+                c.drawImage(template_path, 0, 0, width=A4[0], height=A4[1])
+                main_debug_log(f"✅ Şablon çizildi")
+    
+                # Bu sayfa için görseller
+                sayfa_gorselleri = [self.gorsel_listesi[i] for i in kalan_sorular]
+                main_debug_log(f"📝 Bu sayfada işlenecek sorular:")
+                for idx, soru_path in enumerate(sayfa_gorselleri):
+                    global_idx = kalan_sorular[idx]
+                    main_debug_log(f"   Local {idx} -> Global {global_idx}: {os.path.basename(soru_path)}")
+    
+                # Layout fonksiyonunu çağır - GLOBAL OFFSET İLE
+                yerlestirildi, kullanilan_set = self.create_working_test_layout(
+                    c, sayfa_gorselleri, kalan_sorular, sayfa_no, A4[0], A4[1], self.global_soru_sayaci
+                )
+    
+                main_debug_log(f"📊 SAYFA {sayfa_no} SONUÇLARI:")
+                main_debug_log(f"   Yerleştirilen soru sayısı: {yerlestirildi}")
+                main_debug_log(f"   Kullanılan global indices: {sorted(kullanilan_set)}")
+    
+                # Global sayacı güncelle
+                self.global_soru_sayaci += yerlestirildi
+                main_debug_log(f"   🔢 Global sayaç güncellendi: {self.global_soru_sayaci}")
+    
+                # Hiç soru yerleştirilemediyse dur
+                if yerlestirildi == 0:
+                    main_debug_log("🚨 HİÇ SORU YERLEŞTİRİLEMEDİ - DÖNGÜ BİTİRİLİYOR")
+                    break
+    
+                # Kullanılan soruları çıkar
+                onceki_kalan = kalan_sorular.copy()
+                kalan_sorular = [i for i in kalan_sorular if i not in kullanilan_set]
+    
+                main_debug_log(f"🔄 DURUM GÜNCELLEMESİ:")
+                main_debug_log(f"   Önceki kalan: {onceki_kalan}")
+                main_debug_log(f"   Kullanılan: {sorted(kullanilan_set)}")
+                main_debug_log(f"   Yeni kalan: {kalan_sorular}")
+    
+                # Sonraki sayfa varsa showPage
+                if kalan_sorular:
+                    c.showPage()
+                    main_debug_log(f"📄 Yeni sayfa oluşturuldu")
+                    sayfa_no += 1
+                else:
+                    main_debug_log(f"✅ Tüm sorular tamamlandı")
+    
+            # Cevap anahtarı
+            if self.cevap_listesi:
+                c.showPage()
+                self.create_answer_key_page(c)
+                main_debug_log(f"📋 Cevap anahtarı eklendi")
+    
+            # PDF'i kaydet
+            c.save()
+            main_debug_log(f"💾 PDF kaydedildi: {dosya_yolu}")
+            main_debug_log(f"🎉 İŞLEM TAMAMLANDI")
+            main_debug_log(f"🔢 Toplam soru sayısı: {self.global_soru_sayaci}")
+            return True
+    
+        except Exception as e:
+            print(f"❌ PDF KAYDETME HATASI: {e}")
+            import traceback
+            print(f"Detaylı hata: {traceback.format_exc()}")
+            return False
 
     def create_answer_key_page(self, canvas_obj):
         """Cevap anahtarı sayfası oluştur"""
@@ -369,98 +803,6 @@ class PDFCreator:
                 
         except Exception as e:
             self.logger.error(f"Cevap anahtarı oluşturma hatası: {e}")
-    
-    def kaydet(self, dosya_yolu):
-        """ÇALIŞAN PDF kaydet sistemi - Import'sız"""
-        try:
-            self.logger.info(f"PDF oluşturma başlatıldı - Soru Tipi: {self.soru_tipi}")
-            self.logger.info(f"PDF OLUŞTURMA DEBUG:")
-            self.logger.info(f"Toplam görsel sayısı: {len(self.gorsel_listesi)}")
-            for idx, gorsel in enumerate(self.gorsel_listesi):
-                self.logger.info(f"  {idx}: {os.path.basename(gorsel)}")
-
-            # Şablon seçimi
-            current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-            if self.soru_tipi.lower() == "yazili":
-                template_name = "template2.png"
-                self.logger.info("Yazılı şablonu seçildi")
-            else:
-                template_name = "template.png"
-                self.logger.info("Test şablonu seçildi")
-
-            template_path = os.path.join(current_dir, "templates", template_name)
-            self.logger.debug(f"Şablon yolu: {template_path}")
-
-            if not os.path.exists(template_path):
-                self.logger.warning("Şablon bulunamadı, basit PDF oluşturuluyor")
-                return self._basit_pdf_olustur(dosya_yolu)
-
-            # Canvas oluştur
-            c = canvas.Canvas(dosya_yolu, pagesize=A4)
-
-            # 📄 BASIT ÇALIŞAN SİSTEM - İmport yok
-            self.logger.info("📄 Basit çalışan sistem aktif")
-            
-            kalan_gorseller = self.gorsel_listesi.copy()
-            sayfa_no = 1
-            max_sayfa = 50  # Güvenlik limiti
-
-            self.logger.info("🔄 Dinamik sayfa sistemi başlatılıyor...")
-
-            while kalan_gorseller and sayfa_no <= max_sayfa:
-                if self.soru_tipi.lower() == "yazili":
-                    # Yazılı için sabit 2 soru
-                    sayfa_gorselleri = kalan_gorseller[:2]
-                    kalan_gorseller = kalan_gorseller[2:]
-                    yerlestirildi = len(sayfa_gorselleri)
-                    self.logger.info(f"📄 YAZILI SAYFA {sayfa_no} - {len(sayfa_gorselleri)} soru işlenecek")
-                    self.create_template_page(c, sayfa_gorselleri, sayfa_no, template_path)
-                else:
-                    # Test için maksimum 8 soru dene
-                    max_soru_bu_sayfa = min(len(kalan_gorseller), 8)
-                    sayfa_gorselleri = kalan_gorseller[:max_soru_bu_sayfa]
-
-                    self.logger.info(f"📄 SAYFA {sayfa_no} - {len(sayfa_gorselleri)} soru test ediliyor")
-
-                    # Şablonlu sayfa oluştur ve gerçekte kaç soru yerleştirildiğini öğren
-                    yerlestirildi = self.create_template_page(c, sayfa_gorselleri, sayfa_no, template_path)
-
-                    # Yerleştirilen soruları kalan_gorseller'den çıkar
-                    kalan_gorseller = kalan_gorseller[yerlestirildi:]
-
-                self.logger.info(f"✅ Sayfa {sayfa_no}: {yerlestirildi} soru yerleştirildi, kalan: {len(kalan_gorseller)}")
-
-                # Sonraki sayfa için hazırlık
-                if kalan_gorseller:
-                    c.showPage()
-                    sayfa_no += 1
-                
-                # EMNİYET KONTROLÜ
-                if yerlestirildi == 0:
-                    self.logger.error("🚨 Hiç soru yerleştirilemedi - DÖNGÜ SONLANDIRILIYOR")
-                    break
-
-            if sayfa_no > max_sayfa:
-                self.logger.error(f"🚨 Maksimum sayfa sınırı ({max_sayfa}) aşıldı!")
-
-            self.logger.info(f"📊 Toplam {sayfa_no} sayfa oluşturuldu")
-
-            # Cevap anahtarı sayfası ekle
-            if self.cevap_listesi:
-                c.showPage()
-                self.create_answer_key_page(c)
-                self.logger.info("📋 Cevap anahtarı sayfası eklendi")
-
-            c.save()
-            self.logger.info(f"🎉 PDF başarıyla kaydedildi: {os.path.basename(dosya_yolu)}")
-            return True
-
-        except Exception as e:
-            self.logger.error(f"❌ PDF kaydetme hatası: {e}")
-            import traceback
-            self.logger.error(f"Detaylı hata: {traceback.format_exc()}")
-            return False
     
     def _basit_pdf_olustur(self, dosya_yolu):
         """Şablon bulunamazsa basit PDF oluştur"""
@@ -522,6 +864,11 @@ class PDFCreator:
 
 
 """
+Aynı sorular alınıyor
+ilk sütun bazen doldurulmuyor
+uzun sorulardan sonra kısa sorular bazen doldurulmuyor
+
+
 def _create_test_layout(self, canvas_obj, gorseller, sayfa_no, page_width, page_height):
         # Layout parametreleri
         top_margin = 50

@@ -1,274 +1,222 @@
+import random
 import os
-from PIL import Image, ImageDraw, ImageFont
-import sys
+import time
+from datetime import datetime
 
-def gorsel_buyut_test():
-    """
-    Template ve görsel alıp, görseli farklı boyutlarda test eden script
-    """
-    print("🔍 GÖRSEL BÜYÜTME TEST SCRİPTİ")
-    print("=" * 50)
+class PDFTestSuite:
+    def __init__(self, pdf_creator, soru_klasoru):
+        self.pdf_creator = pdf_creator
+        self.soru_klasoru = soru_klasoru
+        self.tum_sorular = self._load_all_sorular()
+        self.test_results = []
+        
+    def _load_all_sorular(self):
+        """Klasörden tüm soruları yükle"""
+        try:
+            dosyalar = [f for f in os.listdir(self.soru_klasoru) 
+                       if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+            soru_paths = [os.path.join(self.soru_klasoru, f) for f in dosyalar]
+            print(f"📁 {len(soru_paths)} soru yüklendi")
+            return soru_paths
+        except Exception as e:
+            print(f"❌ Soru yükleme hatası: {e}")
+            return []
     
-    # Dosya yollarını al
-    template_path = "./templates/template.png"
-    gorsel_path = "./17.png"
+    def _analyze_soru_sizes(self):
+        """Soruları boyutlarına göre kategorize et"""
+        from PIL import Image as PILImage
+        
+        uzun_sorular = []
+        orta_sorular = []
+        kisa_sorular = []
+        
+        for soru_path in self.tum_sorular:
+            try:
+                with PILImage.open(soru_path) as img:
+                    ratio = img.width / img.height
+                    # Tahmini yükseklik (sütun genişliği 283px varsayımı)
+                    tahmini_height = 283 * 0.98 / ratio
+                    
+                    if tahmini_height > 300:
+                        uzun_sorular.append(soru_path)
+                    elif tahmini_height > 180:
+                        orta_sorular.append(soru_path)
+                    else:
+                        kisa_sorular.append(soru_path)
+            except Exception as e:
+                print(f"⚠️ {os.path.basename(soru_path)} analiz edilemedi: {e}")
+                orta_sorular.append(soru_path)  # Fallback
+        
+        print(f"📊 Soru analizi: {len(uzun_sorular)} uzun, {len(orta_sorular)} orta, {len(kisa_sorular)} kısa")
+        return uzun_sorular, orta_sorular, kisa_sorular
     
-    # Dosyaları kontrol et
-    if not os.path.exists(template_path):
-        print(f"❌ Template bulunamadı: {template_path}")
-        return
+    def _create_test_pdf(self, test_name, sorular, soru_tipi="test"):
+        """Test PDF'i oluştur - DETAYLI LOG İLE"""
+        try:
+            print(f"\n🔧 {test_name} başlatılıyor...")
+            
+            # PDF creator'ı temizle
+            self.pdf_creator.gorsel_listesi = []
+            self.pdf_creator.cevap_listesi = []
+            self.pdf_creator.soru_tipi = soru_tipi
+            
+            # Başlık ekle
+            self.pdf_creator.baslik_ekle(f"Test: {test_name}")
+            
+            # Soruları ekle
+            for i, soru_path in enumerate(sorular):
+                self.pdf_creator.gorsel_ekle(soru_path)
+                print(f"  📎 Soru {i+1}: {os.path.basename(soru_path)}")
+            
+            # PDF'i kaydet
+            output_path = f"test_results/test_{test_name.lower().replace(' ', '_').replace('-', '_')}.pdf"
+            os.makedirs("test_results", exist_ok=True)
+            
+            print(f"  💾 PDF kaydediliyor: {output_path}")
+            
+            start_time = time.time()
+            success = self.pdf_creator.kaydet(output_path)
+            end_time = time.time()
+            
+            if success:
+                print(f"  ✅ BAŞARILI - {end_time - start_time:.2f}s")
+            else:
+                print(f"  ❌ BAŞARISIZ")
+            
+            return {
+                'success': success,
+                'output_path': output_path,
+                'duration': end_time - start_time,
+                'soru_count': len(sorular)
+            }
+            
+        except Exception as e:
+            print(f"❌ Test {test_name} hatası: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'soru_count': len(sorular)
+            }
     
-    if not os.path.exists(gorsel_path):
-        print(f"❌ Görsel bulunamadı: {gorsel_path}")
-        return
-    
-    try:
-        # Template ve görseli aç
-        template = Image.open(template_path).convert("RGB")
-        gorsel = Image.open(gorsel_path).convert("RGB")
+    def run_all_tests(self):
+        """Sadece kritik testleri çalıştır - PROBLEM TESPİTİ İÇİN"""
+        print("🎯 KRİTİK TEST SETİ - PROBLEM TESPİTİ")
+        print("=" * 50)
         
-        print(f"✅ Template yüklendi: {template.size}")
-        print(f"✅ Görsel yüklendi: {gorsel.size}")
+        # Soruları analiz et
+        uzun_sorular, orta_sorular, kisa_sorular = self._analyze_soru_sizes()
         
-        # Orijinal görsel bilgileri
-        original_width, original_height = gorsel.size
-        img_ratio = original_width / original_height
-        aspect_ratio = original_height / original_width
-        
-        print(f"\n📊 GÖRSEL BİLGİLERİ:")
-        print(f"   Orijinal boyut: {original_width}x{original_height}")
-        print(f"   En/Boy oranı: {img_ratio:.3f}")
-        print(f"   Boy/En oranı: {aspect_ratio:.3f}")
-        
-        # Soru tipi belirle
-        if aspect_ratio >= 1.4:
-            soru_tipi = "UZUN"
-        elif aspect_ratio <= 0.8:
-            soru_tipi = "KISA"
-        else:
-            soru_tipi = "ORTA"
-        
-        print(f"   Soru tipi: {soru_tipi}")
-        
-        # Kutucuk boyutları (template'e göre ayarla)
-        template_width, template_height = template.size
-        box_width = 258  # Sabit kutucuk genişliği
-        box_height = 170  # Sabit kutucuk yüksekliği
-        
-        print(f"\n📦 KUTUCUK BİLGİLERİ:")
-        print(f"   Kutucuk boyutu: {box_width}x{box_height}")
-        print(f"   Kutucuk alanı: {box_width * box_height} px²")
-        
-        # Farklı büyütme yöntemlerini test et
-        test_yontemleri = [
-            ("Mevcut Yöntem", test_mevcut_yontem),
-            ("Genişlik Odaklı", test_genislik_odakli),
-            ("Zorla %90 Genişlik", test_zorla_90),
-            ("Manuel Büyütme", test_manuel_buyutme)
+        # Kritik test senaryoları
+        critical_tests = test_cases = [
+            {
+                "name": "Test 1 - Az Soru",
+                "description": "5 rastgele soru ile temel test",
+                "sorular": random.sample(self.tum_sorular, min(5, len(self.tum_sorular))),
+                "soru_tipi": "test"
+            },
+            {
+                "name": "Test 2 - Tam Sayfa",
+                "description": "8 soru ile tek sayfa doldurma",
+                "sorular": random.sample(self.tum_sorular, min(8, len(self.tum_sorular))),
+                "soru_tipi": "test"
+            },
+            {
+                "name": "Test 3 - Çok Soru",
+                "description": "15 soru ile çoklu sayfa testi",
+                "sorular": random.sample(self.tum_sorular, min(15, len(self.tum_sorular))),
+                "soru_tipi": "test"
+            },
+            {
+                "name": "Test 4 - Maksimum",
+                "description": "Tüm sorular (18 soru)",
+                "sorular": self.tum_sorular.copy(),
+                "soru_tipi": "test"
+            },
+            {
+                "name": "Test 5 - Sadece Uzun",
+                "description": "Sadece uzun sorular",
+                "sorular": uzun_sorular[:min(8, len(uzun_sorular))],
+                "soru_tipi": "test"
+            },
+            {
+                "name": "Test 6 - Sadece Kısa",
+                "description": "Sadece kısa sorular",
+                "sorular": kisa_sorular[:min(10, len(kisa_sorular))],
+                "soru_tipi": "test"
+            },
+            {
+                "name": "Test 7 - Uzun Ağırlıklı",
+                "description": "6 uzun + 2 kısa soru karışımı",
+                "sorular": uzun_sorular[:min(6, len(uzun_sorular))] + kisa_sorular[:min(2, len(kisa_sorular))],
+                "soru_tipi": "test"
+            },
+            {
+                "name": "Test 8 - Kısa Ağırlıklı",
+                "description": "6 kısa + 2 uzun soru karışımı",
+                "sorular": kisa_sorular[:min(6, len(kisa_sorular))] + uzun_sorular[:min(2, len(uzun_sorular))],
+                "soru_tipi": "test"
+            },
+            {
+                "name": "Test 10 - Ekstrem Uzun",
+                "description": "En uzun 3 soru ile zorlama testi",
+                "sorular": uzun_sorular[:min(3, len(uzun_sorular))],
+                "soru_tipi": "test"
+            },
         ]
         
-        results = []
-        
-        for yontem_adi, yontem_func in test_yontemleri:
-            print(f"\n🧪 TEST: {yontem_adi}")
-            print("-" * 30)
+        # Testleri çalıştır
+        for i, test_case in enumerate(critical_tests, 1):
+            print(f"\n🧪 {i}/5: {test_case['name']}")
+            print(f"📝 {test_case['description']}")
             
-            try:
-                result = yontem_func(gorsel, box_width, box_height, img_ratio, aspect_ratio, soru_tipi)
-                results.append((yontem_adi, result))
-                
-                final_width, final_height = result
-                genislik_kaplama = (final_width / box_width) * 100
-                yukseklik_kaplama = (final_height / box_height) * 100
-                alan_kaplama = ((final_width * final_height) / (box_width * box_height)) * 100
-                
-                print(f"   📏 Sonuç boyut: {final_width:.0f}x{final_height:.0f}")
-                print(f"   📊 Genişlik kaplama: %{genislik_kaplama:.1f}")
-                print(f"   📊 Yükseklik kaplama: %{yukseklik_kaplama:.1f}")
-                print(f"   📊 Alan kaplama: %{alan_kaplama:.1f}")
-                
-                if genislik_kaplama >= 80:
-                    print("   ✅ GENİŞLİK BAŞARILI!")
-                else:
-                    print("   ❌ Genişlik yetersiz")
-                    
-            except Exception as e:
-                print(f"   ❌ Hata: {e}")
-                results.append((yontem_adi, None))
+            # Test çalıştır
+            result = self._create_test_pdf(
+                test_case['name'], 
+                test_case['sorular'],
+                test_case['soru_tipi']
+            )
+            
+            # Sonuçları kaydet
+            result['test_name'] = test_case['name']
+            result['description'] = test_case['description']
+            self.test_results.append(result)
+            
+            print("-" * 30)
         
         # Özet rapor
-        print(f"\n📋 ÖZET RAPOR:")
+        self._print_critical_summary()
+    
+    def _print_critical_summary(self):
+        """Kritik test sonuçlarının özet raporu"""
+        print("\n" + "=" * 50)
+        print("📊 KRİTİK TEST SONUÇLARI")
         print("=" * 50)
-        for yontem_adi, result in results:
-            if result:
-                final_width, final_height = result
-                genislik_kaplama = (final_width / box_width) * 100
-                status = "✅ BAŞARILI" if genislik_kaplama >= 80 else "❌ Yetersiz"
-                print(f"{yontem_adi:20}: {final_width:.0f}x{final_height:.0f} (%{genislik_kaplama:.1f}) {status}")
-            else:
-                print(f"{yontem_adi:20}: HATA")
         
-        # En iyi sonucu template üzerinde göster
-        en_iyi = max([r for r in results if r[1]], key=lambda x: (x[1][0] / box_width) * 100)
-        print(f"\n🏆 EN İYİ SONUÇ: {en_iyi[0]}")
+        basarili = sum(1 for r in self.test_results if r['success'])
+        toplam = len(self.test_results)
         
-        # Test görselini oluştur
-        test_gorseli_olustur(template, gorsel, results, box_width, box_height, soru_tipi)
+        print(f"🎯 Toplam: {toplam} | ✅ Başarılı: {basarili} | ❌ Başarısız: {toplam - basarili}")
+        print(f"📈 Başarı Oranı: %{(basarili/toplam)*100:.1f}")
         
-    except Exception as e:
-        print(f"❌ Genel hata: {e}")
+        print(f"\n📋 Test Detayları:")
+        for result in self.test_results:
+            status = "✅" if result['success'] else "❌"
+            soru_count = result['soru_count']
+            duration = result.get('duration', 0)
+            print(f"  {status} {result['test_name']}: {soru_count} soru - {duration:.1f}s")
+        
+        print("=" * 50)
 
-def test_mevcut_yontem(gorsel, box_width, box_height, img_ratio, aspect_ratio, soru_tipi):
-    """Mevcut proje algoritması"""
-    if soru_tipi == "UZUN":
-        max_img_width = box_width * 0.98
-        max_img_height = box_height * 0.95
-        buyutme_carpani = 1.10
-    else:
-        max_img_width = box_width * 0.95
-        max_img_height = box_height * 0.85
-        buyutme_carpani = 1.0
+# Ana çalıştırma fonksiyonu
+def run_critical_tests():
+    """Kritik testleri çalıştır"""
+    from logic.pdf_generator import PDFCreator
     
-    # Boyutlandırma
-    if img_ratio > (max_img_width / max_img_height):
-        final_width = max_img_width
-        final_height = max_img_width / img_ratio
-    else:
-        final_height = max_img_height
-        final_width = max_img_height * img_ratio
+    pdf_creator = PDFCreator()
+    soru_klasoru = "C:\\Users\\abdul\\Desktop\\Soru-Havuzu\\Unite-1\\Karbonhidrat\\Test\\Kolay"
     
-    # Büyütme
-    if buyutme_carpani > 1.0:
-        final_width *= buyutme_carpani
-        final_height *= buyutme_carpani
-        
-        # Sınır kontrolü
-        if final_width > box_width:
-            final_width = box_width
-            final_height = box_width / img_ratio
-        if final_height > box_height:
-            final_height = box_height
-            final_width = box_height * img_ratio
-    
-    return final_width, final_height
-
-def test_genislik_odakli(gorsel, box_width, box_height, img_ratio, aspect_ratio, soru_tipi):
-    """Genişlik odaklı yaklaşım"""
-    if soru_tipi == "UZUN":
-        # Önce genişliği maksimuma getir
-        final_width = box_width * 0.90  # %90 genişlik
-        final_height = final_width / img_ratio
-        
-        # Yükseklik kontrolü
-        if final_height > box_height * 0.95:
-            final_height = box_height * 0.95
-            final_width = final_height * img_ratio
-    else:
-        # Kısa sorular için normal
-        final_width = box_width * 0.95
-        final_height = final_width / img_ratio
-        if final_height > box_height * 0.85:
-            final_height = box_height * 0.85
-            final_width = final_height * img_ratio
-    
-    return final_width, final_height
-
-def test_zorla_90(gorsel, box_width, box_height, img_ratio, aspect_ratio, soru_tipi):
-    """Zorla %90 genişlik"""
-    if soru_tipi == "UZUN":
-        final_width = box_width * 0.90  # Zorla %90
-        final_height = final_width * aspect_ratio  # Doğru oran kullan
-        
-        # Yükseklik taşarsa küçült
-        if final_height > box_height * 0.95:
-            final_height = box_height * 0.95
-            final_width = final_height / aspect_ratio
-    else:
-        return test_genislik_odakli(gorsel, box_width, box_height, img_ratio, aspect_ratio, soru_tipi)
-    
-    return final_width, final_height
-
-def test_manuel_buyutme(gorsel, box_width, box_height, img_ratio, aspect_ratio, soru_tipi):
-    """Manuel büyütme - En agresif"""
-    if soru_tipi == "UZUN":
-        # Direkt %95 genişlik ver
-        final_width = box_width * 0.95
-        final_height = box_height * 0.95
-        
-        # En-boy oranını kontrol et, gerekirse küçült
-        if final_height / final_width > aspect_ratio:
-            final_height = final_width * aspect_ratio
-        else:
-            final_width = final_height / aspect_ratio
-    else:
-        final_width = box_width * 0.95
-        final_height = final_width / img_ratio
-        if final_height > box_height * 0.85:
-            final_height = box_height * 0.85
-            final_width = final_height * img_ratio
-    
-    return final_width, final_height
-
-def test_gorseli_olustur(template, gorsel, results, box_width, box_height, soru_tipi):
-    """Test sonuçlarını gösteren görsel oluştur"""
-    try:
-        # Template kopyala
-        test_template = template.copy()
-        draw = ImageDraw.Draw(test_template)
-        
-        # Font yükle
-        try:
-            font = ImageFont.truetype("arial.ttf", 16)
-            small_font = ImageFont.truetype("arial.ttf", 12)
-        except:
-            font = ImageFont.load_default()
-            small_font = ImageFont.load_default()
-        
-        # Test alanları - 2x2 grid
-        positions = [
-            (50, 100),    # Sol üst
-            (350, 100),   # Sağ üst  
-            (50, 400),    # Sol alt
-            (350, 400)    # Sağ alt
-        ]
-        
-        # Her test sonucunu göster
-        for i, (yontem_adi, result) in enumerate(results[:4]):
-            if result is None:
-                continue
-                
-            x, y = positions[i]
-            final_width, final_height = result
-            
-            # Kutucuk çerçevesi çiz
-            draw.rectangle([x, y, x + box_width, y + box_height], outline="red", width=2)
-            
-            # Görseli boyutlandır ve yerleştir
-            test_gorsel = gorsel.copy()
-            test_gorsel = test_gorsel.resize((int(final_width), int(final_height)), Image.Resampling.LANCZOS)
-            
-            # Görseli ortala
-            paste_x = x + (box_width - final_width) // 2
-            paste_y = y + (box_height - final_height) // 2
-            test_template.paste(test_gorsel, (int(paste_x), int(paste_y)))
-            
-            # Bilgileri yaz
-            genislik_kaplama = (final_width / box_width) * 100
-            draw.text((x, y - 40), yontem_adi, fill="black", font=font)
-            draw.text((x, y - 20), f"{final_width:.0f}x{final_height:.0f} (%{genislik_kaplama:.1f})", 
-                     fill="blue", font=small_font)
-        
-        # Başlık ekle
-        draw.text((50, 20), f"GÖRSEL BÜYÜTME TESTİ - {soru_tipi} SORU", fill="black", font=font)
-        draw.text((50, 45), f"Kutucuk: {box_width}x{box_height}", fill="gray", font=small_font)
-        
-        # Kaydet
-        output_path = "gorsel_buyutme_test.png"
-        test_template.save(output_path)
-        print(f"\n💾 Test görseli kaydedildi: {output_path}")
-        
-    except Exception as e:
-        print(f"❌ Test görseli oluşturma hatası: {e}")
+    test_suite = PDFTestSuite(pdf_creator, soru_klasoru)
+    test_suite.run_critical_tests_only()
 
 if __name__ == "__main__":
-    gorsel_buyut_test()
+    run_critical_tests()

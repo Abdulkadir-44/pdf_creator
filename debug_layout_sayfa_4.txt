@@ -1,0 +1,61 @@
+=== SAYFA 4 LAYOUT DEBUG ===
+Başlangıç Zamanı: 2025-08-17 22:41:07.326834
+
+[22:41:07.326] [INFO] 🚀 SAYFA 4 LAYOUT BAŞLADI
+[22:41:07.326] [INFO] 📥 Gelen soru sayısı: 1
+[22:41:07.326] [INFO] 📥 Kalan indices: [2]
+[22:41:07.326] [INFO] 📊 Global offset: 7
+[22:41:07.326] [INFO] 📏 SAYFA BOYUTLARI:
+[22:41:07.326] [INFO]    Sayfa: 595x842
+[22:41:07.326] [INFO]    Kullanılabilir: 555x802
+[22:41:07.326] [INFO]    Sütun genişliği: 258
+[22:41:07.326] [INFO]    Sütun arası: 40
+[22:41:07.343] [INFO] 📍 BAŞLANGIÇ POZİSYONLARI:
+[22:41:07.343] [INFO]    Sütun 1: X=20, Y=807
+[22:41:07.343] [INFO]    Sütun 2: X=318, Y=807
+[22:41:07.343] [INFO] 🔍 SORU BOYUT ANALİZİ BAŞLIYOR:
+[22:41:07.343] [INFO]    Soru 3 (13.png):
+[22:41:07.343] [INFO]       Orijinal: 500x754
+[22:41:07.343] [INFO]       Final: 252x381
+[22:41:07.343] [INFO]       Toplam yükseklik: 399px
+[22:41:07.343] [INFO]       Kategori: UZUN
+[22:41:07.358] [INFO] 🎯 YERLEŞTIRME ALGORİTMASI BAŞLIYOR
+[22:41:07.360] [INFO] 
+📊 SÜTUN 1 DOLDURULUYOR...
+[22:41:07.360] [INFO]    🔄 İterasyon 1
+[22:41:07.360] [INFO]    📏 Kalan boşluk: 802px
+[22:41:07.360] [INFO]    ✅ Uygun: Soru 3 (UZUN) - 399px
+[22:41:07.360] [INFO]    🎯 SEÇİLEN: Soru 3
+[22:41:07.360] [INFO]       Dosya: 13.png
+[22:41:07.360] [INFO]       Boyut: 252x381
+[22:41:07.360] [INFO]       Toplam yükseklik: 399px
+[22:41:07.360] [INFO]       Kalan alan: 403px
+[22:41:07.360] [INFO]    📍 POZİSYON:
+[22:41:07.360] [INFO]       Görsel X: 20
+[22:41:07.360] [INFO]       Görsel Y: 408
+[22:41:07.375] [INFO]       Soru numarası Y: 797
+[22:41:07.443] [INFO]    📝 Soru numarası çizildi: 8 (Sütun 1)
+[22:41:07.443] [INFO]    ✅ Görsel başarıyla çizildi
+[22:41:07.443] [INFO]    📊 GÜNCELLEMELER:
+[22:41:07.443] [INFO]       Yeni Y pozisyonu: 398
+[22:41:07.443] [INFO]       Kullanılan sorular: [2]
+[22:41:07.443] [INFO]       Toplam yerleştirilen: 1
+[22:41:07.443] [INFO]    🔄 İterasyon 2
+[22:41:07.443] [INFO]    📏 Kalan boşluk: 393px
+[22:41:07.443] [INFO]    ⚠️ Uygun soru bulunamadı, sütun 1 tamamlandı
+[22:41:07.443] [INFO] 
+📊 SÜTUN 2 DOLDURULUYOR...
+[22:41:07.443] [INFO]    🔄 İterasyon 1
+[22:41:07.443] [INFO]    📏 Kalan boşluk: 802px
+[22:41:07.460] [INFO]    ⚠️ Uygun soru bulunamadı, sütun 2 tamamlandı
+[22:41:07.460] [INFO] 
+🏁 SAYFA 4 TAMAMLANDI
+[22:41:07.460] [INFO] 📊 SONUÇLAR:
+[22:41:07.460] [INFO]    Toplam gelen soru: 1
+[22:41:07.460] [INFO]    Yerleştirilen: 1
+[22:41:07.460] [INFO]    Kullanılan indices: [2]
+[22:41:07.460] [INFO]    Sonraki sayfaya kalan: 0
+[22:41:07.460] [INFO] 
+📈 SÜTUN DURUMU RAPORU:
+[22:41:07.460] [INFO]    Sütun 1: Kullanılan=409px, Kalan=393px
+[22:41:07.460] [INFO]    Sütun 2: Kullanılan=0px, Kalan=802px
