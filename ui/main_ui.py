@@ -1,5 +1,6 @@
 import customtkinter as ctk
 from ui.unite_sec_ui import UniteSecmePenceresi
+from ui.konu_baslik_sec_ui import KonuBaslikSecmePenceresi
 from ui.konu_sec_ui import KonuSecmePenceresi 
 
 ctk.set_appearance_mode("light")
@@ -14,8 +15,6 @@ class AnaPencere(ctk.CTk):
         super().__init__()
 
         self.title("Soru Otomasyon Sistemi")
-        self.geometry(f"{self.winfo_screenwidth()}x{self.winfo_screenheight()}+0+0")
-        self.resizable(False, False)
         self.configure(bg=BG_COLOR)
 
         # Tüm sayfaları tutacak bir ana container frame
@@ -32,6 +31,9 @@ class AnaPencere(ctk.CTk):
 
         # Başlangıç sayfasını göster
         self.show_frame("AnaMenu")
+        
+        # Pencere hazır olduktan sonra maximize yap
+        self.after(50, lambda: self.state('zoomed'))
 
     def init_frames(self):
         """Sabit frame'leri başlangıçta oluştur"""
@@ -39,22 +41,39 @@ class AnaPencere(ctk.CTk):
         self.frames["AnaMenu"] = AnaMenu(self.container, self)
         self.frames["AnaMenu"].grid(row=0, column=0, sticky="nsew")
         
-        # Ünite Seçme
+        # Ders Seçme (eski UniteSecme)
         self.frames["UniteSecme"] = UniteSecmePenceresi(self.container, self)
         self.frames["UniteSecme"].grid(row=0, column=0, sticky="nsew")
 
     def show_frame(self, frame_name, **kwargs):
         """Frame'i göster"""
-        # Dinamik frame oluşturma (KonuSecme için)
-        if frame_name == "KonuSecme":
-            unite_klasor_yolu = kwargs.get('unite_klasor_yolu')
-            if unite_klasor_yolu:
-                # Eğer KonuSecme frame'i varsa güncelle, yoksa oluştur
-                if "KonuSecme" in self.frames:
-                    self.frames["KonuSecme"].destroy()
+        
+        # Dinamik frame oluşturma
+        if frame_name == "KonuBaslikSecme":
+            ders_klasor_yolu = kwargs.get('ders_klasor_yolu')
+            ders_adi = kwargs.get('ders_adi')
+            if ders_klasor_yolu and ders_adi:
+                # Eğer frame varsa güncelle, yoksa oluştur
+                if "KonuBaslikSecme" in self.frames:
+                    self.frames["KonuBaslikSecme"].destroy()
                 
-                self.frames["KonuSecme"] = KonuSecmePenceresi(self.container, self, unite_klasor_yolu)
-                self.frames["KonuSecme"].grid(row=0, column=0, sticky="nsew")
+                self.frames["KonuBaslikSecme"] = KonuBaslikSecmePenceresi(
+                    self.container, self, ders_klasor_yolu, ders_adi
+                )
+                self.frames["KonuBaslikSecme"].grid(row=0, column=0, sticky="nsew")
+        
+        elif frame_name == "SoruParametre":
+            ders_adi = kwargs.get('ders_adi')
+            secilen_konular = kwargs.get('secilen_konular')
+            if ders_adi and secilen_konular:
+                # Eğer frame varsa güncelle, yoksa oluştur
+                if "SoruParametre" in self.frames:
+                    self.frames["SoruParametre"].destroy()
+                
+                self.frames["SoruParametre"] = KonuSecmePenceresi(
+                    self.container, self, None, ders_adi, secilen_konular
+                )
+                self.frames["SoruParametre"].grid(row=0, column=0, sticky="nsew")
         
         # Frame'i en üste getir
         if frame_name in self.frames:
@@ -85,7 +104,7 @@ class AnaMenu(ctk.CTkFrame):
             font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"),
             text_color="#2d3436"
         )
-        title_label.pack(pady=30)
+        title_label.pack(pady=15)
 
         # Soru seç butonu
         soru_sec_btn = ctk.CTkButton(
@@ -116,7 +135,7 @@ class AnaMenu(ctk.CTkFrame):
         klasor_yonet_btn.pack(pady=10)
 
     def soru_sec_ekranini_ac(self):
-        """Ünite seçme ekranını göster"""
+        """Ders seçme ekranını göster"""
         self.controller.show_frame("UniteSecme")
 
     def klasor_yonetimi_ekranini_ac(self):

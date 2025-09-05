@@ -16,16 +16,24 @@ ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("green")
 
 class KonuSecmePenceresi(ctk.CTkFrame):
-    def __init__(self, parent, controller, unite_klasor_yolu, on_questions_selected=None):
-        super().__init__(parent, fg_color="transparent")
+    def __init__(self, parent, controller, unite_klasor_yolu=None, ders_adi=None, secilen_konular=None):
+        super().__init__(parent, fg_color="#f0f2f5")
         self.controller = controller
-        self.unite_klasor_yolu = unite_klasor_yolu
-        self.on_questions_selected = on_questions_selected
+        self.unite_klasor_yolu = unite_klasor_yolu  # Artık kullanılmıyor ama uyumluluk için
+        self.ders_adi = ders_adi
+        self.colors = {
+            'primary': '#4361ee',
+            'primary_hover': '#3730a3',
+            'light': '#ffffff',
+            'bg': '#f0f2f5'
+        }
+        self.secilen_konular = secilen_konular or {}  # {konu_adi: klasor_yolu}
         self.secilen_gorseller = []
+        self.konu_soru_dagilimi = {}  # Her konudan kaç soru seçileceği
         
         # Logger'ı kur
         self.logger = self._setup_logger()
-        self.logger.info("KonuSecmePenceresi başlatıldı")
+        self.logger.info(f"KonuSecmePenceresi başlatıldı - Ders: {ders_adi}, Konu sayısı: {len(self.secilen_konular)}")
         
         # UI'ı oluştur
         self.setup_ui()
@@ -54,20 +62,18 @@ class KonuSecmePenceresi(ctk.CTkFrame):
     def setup_ui(self):
         """Ana UI'ı oluştur"""
         self.logger.debug("UI kurulumu başlatılıyor")
-        
-        # Ana container
-        self.main_frame = ctk.CTkFrame(self, corner_radius=20, fg_color="transparent")
-        self.main_frame.pack(fill="both", expand=True, padx=30, pady=30)
 
-        # Başlık
-        title_label = ctk.CTkLabel(
-            self.main_frame,
-            text="📚 Konu, Zorluk ve Soru Sayısı Seçimi",
-            font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"),
-            text_color="#2d3436"
-        )
-        title_label.pack(pady=(0, 20))
+        # Ana container ekle
+        self.main_container = ctk.CTkFrame(self, fg_color=self.colors['bg'], corner_radius=0)
+        self.main_container.pack(fill="both", expand=True)
 
+        # Header bölümü ekle
+        self.create_header()
+
+        # Mevcut main_frame kodunu main_container'ın içine al:
+        self.main_frame = ctk.CTkFrame(self.main_container, corner_radius=20, fg_color="transparent")
+        self.main_frame.pack(fill="both", expand=True, padx=10, pady=(10, 10))  # üst padding azaltıldı
+    
         # Form container
         self.form_frame = ctk.CTkFrame(
             self.main_frame, 
@@ -76,378 +82,930 @@ class KonuSecmePenceresi(ctk.CTkFrame):
             border_width=1, 
             border_color="#e9ecef"
         )
-        self.form_frame.pack(fill="both", expand=True, padx=20, pady=10)
+        self.form_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
         self.create_selection_widgets()
         self.logger.info("UI kurulumu tamamlandı")
 
-    def create_selection_widgets(self):
-        """Seçim widget'larını oluştur"""
-        self.logger.debug("Seçim widget'ları oluşturuluyor")
-        
-        # Navigasyon butonları
-        nav_frame = ctk.CTkFrame(self.form_frame, fg_color="transparent")
-        nav_frame.pack(fill="x", padx=40, pady=(20, 10))
+    def create_header(self):
+        """Modern header tasarımı"""
+        # Header frame
+        header_frame = ctk.CTkFrame(
+            self.main_container, 
+            height=100,  # Daha ince (120'den 100'e düşürüldü)
+            corner_radius=0,
+            fg_color=self.colors['primary']
+        )
+        header_frame.pack(fill="x")
+        header_frame.pack_propagate(False)
 
-        ana_menu_btn = ctk.CTkButton(
-            nav_frame,
-            text="🏠 Ana Menü",
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            width=120,
-            height=35,
-            corner_radius=10,
-            fg_color="#6c757d",
-            hover_color="#5a6268",
-            text_color="#ffffff",
+        # Header içeriği
+        header_content = ctk.CTkFrame(header_frame, fg_color="transparent")
+        header_content.pack(expand=True, fill="both", padx=40, pady=15)  # pady azaltıldı
+
+        # Sol taraf - Navigasyon butonları
+        left_frame = ctk.CTkFrame(header_content, fg_color="transparent")
+        left_frame.pack(side="left", fill="y")
+
+        # Ana Menü butonu
+        home_btn = ctk.CTkButton(
+            left_frame,
+            text="Ana Menü",
+            width=100,
+            height=36,
+            corner_radius=8,
+            fg_color="transparent",
+            hover_color="#5a6fee",
+            border_width=2,
+            border_color=self.colors['light'],
+            text_color=self.colors['light'],
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
             command=self.ana_menuye_don
         )
-        ana_menu_btn.pack(side="left")
+        home_btn.pack(side="left", padx=(0, 10))
 
-        unite_sec_btn = ctk.CTkButton(
-            nav_frame,
-            text="⬅ Ünite Seçimi",
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            width=120,
-            height=35,
-            corner_radius=10,
-            fg_color="#6c757d",
-            hover_color="#5a6268",
-            text_color="#ffffff",
-            command=self.unite_sec_sayfasina_don
+        # Konu Seçimi butonu
+        back_btn = ctk.CTkButton(
+            left_frame,
+            text="← Konu Seçimi",
+            width=110,
+            height=36,
+            corner_radius=8,
+            fg_color="transparent",
+            hover_color="#5a6fee",
+            border_width=2,
+            border_color=self.colors['light'],
+            text_color=self.colors['light'],
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            command=self.konu_baslik_sayfasina_don
         )
-        unite_sec_btn.pack(side="left", padx=(10, 0))
+        back_btn.pack(side="left")
 
-        # Konu Seçimi
-        konu_label = ctk.CTkLabel(
-            self.form_frame, 
-            text="📖 Konu Seçin:",
-            font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
-            text_color="#495057"
-        )
-        konu_label.pack(pady=(30, 10), anchor="w", padx=40)
+        # Sağ taraf - Başlık
+        right_frame = ctk.CTkFrame(header_content, fg_color="transparent")
+        right_frame.pack(side="right", fill="y")
 
-        self.konu_var = tk.StringVar()
-        konu_values = self.get_konu_klasorleri()
-        self.konu_menu = ctk.CTkComboBox(
-            self.form_frame,
-            variable=self.konu_var,
-            values=konu_values,
-            font=ctk.CTkFont(family="Segoe UI", size=14),
-            width=400,
-            height=40,
-            corner_radius=10,
-            state="readonly"
+        title_label = ctk.CTkLabel(
+            right_frame,
+            text=f"{self.ders_adi}",
+            font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"),  # Boyut küçültüldü
+            text_color=self.colors['light']
         )
-        self.konu_menu.set("Konu seçin...")
-        self.konu_menu.pack(pady=(0, 20), padx=40)
+        title_label.pack(anchor="e")
+
+        subtitle_label = ctk.CTkLabel(
+            right_frame,
+            text="Soru Parametre Seçimi",
+            font=ctk.CTkFont(family="Segoe UI", size=13),  # Boyut küçültüldü
+            text_color="#e0e0e0"
+        )
+        subtitle_label.pack(anchor="e", pady=(3, 0))
+    
+    def create_selection_widgets(self):
+        """Seçim widget'larını oluştur - Geliştirilmiş tasarım"""
+        self.logger.debug("Seçim widget'ları oluşturuluyor")
+
         
-        # Input alanına tıklandığında dropdown'ı açmak için olay bağlama
-        self.konu_menu._entry.bind("<Button-1>", lambda e: self.konu_menu._open_dropdown_menu())
+
+        # Ana horizontal container
+        main_horizontal_frame = ctk.CTkFrame(self.form_frame, fg_color="transparent")
+        main_horizontal_frame.pack(fill="both", expand=True, padx=30, pady=(5, 10))
+
+        # Sol taraf - Input'lar
+        left_input_frame = ctk.CTkFrame(
+            main_horizontal_frame, 
+            fg_color="#ffffff",
+            corner_radius=16,
+            border_width=1,
+            border_color="#e2e8f0"
+        )
+        left_input_frame.pack(side="left", fill="y", padx=(0, 25), ipadx=30, ipady=10)
+
+        # Sol taraf başlığı
+        left_title_label = ctk.CTkLabel(
+            left_input_frame, 
+            text="Soru Parametreleri",
+            font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
+            text_color="#1a202c"
+        )
+        left_title_label.pack(pady=(10, 10), anchor="w",padx=(10,0))
 
         # Soru Tipi Seçimi
-        tip_label = ctk.CTkLabel(
-            self.form_frame, 
-            text="📝 Soru Tipi:",
-            font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
-            text_color="#495057"
-        )
-        tip_label.pack(pady=(10, 10), anchor="w", padx=40)
-
         self.soru_tipi_var = tk.StringVar()
         self.soru_tipi_menu = ctk.CTkComboBox(
-            self.form_frame,
+            left_input_frame,
             variable=self.soru_tipi_var,
             values=["Test", "Yazili"],
             font=ctk.CTkFont(family="Segoe UI", size=14),
-            width=400,
-            height=40,
-            corner_radius=10,
+            width=320,
+            height=45,
+            corner_radius=12,
+            border_width=2,
+            border_color="#e2e8f0",
+            button_color="#667eea",
+            button_hover_color="#5a6fd8",
+            dropdown_hover_color="#f7fafc",
             state="readonly"
         )
-        self.soru_tipi_menu.set("Soru tipi seçin...")
-        self.soru_tipi_menu.pack(pady=(0, 20), padx=40)
-
-        # Input alanına tıklandığında dropdown'ı açmak için olay bağlama
         self.soru_tipi_menu._entry.bind("<Button-1>", lambda e: self.soru_tipi_menu._open_dropdown_menu())
+        self.soru_tipi_menu.set("Soru tipi seçin...")
+        self.soru_tipi_menu.pack(anchor="w", pady=(0, 15), padx=(10, 0)) 
 
         # Zorluk Seçimi
-        zorluk_label = ctk.CTkLabel(
-            self.form_frame, 
-            text="⚡ Zorluk Seviyesi:",
-            font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
-            text_color="#495057"
-        )
-        zorluk_label.pack(pady=(10, 10), anchor="w", padx=40)
-
         self.zorluk_var = tk.StringVar()
         self.zorluk_menu = ctk.CTkComboBox(
-            self.form_frame,
+            left_input_frame,
             variable=self.zorluk_var,
             values=["Kolay", "Orta", "Zor"],
             font=ctk.CTkFont(family="Segoe UI", size=14),
-            width=400,
-            height=40,
-            corner_radius=10,
+            width=320,
+            height=45,
+            corner_radius=12,
+            border_width=2,
+            border_color="#e2e8f0",
+            button_color="#48bb78",
+            button_hover_color="#38a169",
+            dropdown_hover_color="#f7fafc",
             state="readonly"
         )
-        self.zorluk_menu.set("Zorluk seviyesi seçin...")
-        self.zorluk_menu.pack(pady=(0, 20), padx=40)
-        
-        # Input alanına tıklandığında dropdown'ı açmak için olay bağlama
         self.zorluk_menu._entry.bind("<Button-1>", lambda e: self.zorluk_menu._open_dropdown_menu())
+        self.zorluk_menu.set("Zorluk seviyesi seçin...")
+        self.zorluk_menu.pack(anchor="w", pady=(0, 15), padx=(10, 0))
 
-        # Soru Sayısı Seçimi
-        soru_label = ctk.CTkLabel(
-            self.form_frame, 
-            text="🔢 Soru Sayısı:",
-            font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
-            text_color="#495057"
-        )
-        soru_label.pack(pady=(10, 10), anchor="w", padx=40)
-
-        self.soru_sayisi_var = tk.StringVar()
-    
-        # Giriş alanı ve spin butonları için frame
-        soru_frame = ctk.CTkFrame(self.form_frame, fg_color="transparent")
-        soru_frame.pack(pady=(0, 30), padx=40, fill="x")
-
-        # Giriş alanı
-        self.soru_entry = ctk.CTkEntry(
-            soru_frame,
-            textvariable=self.soru_sayisi_var,
+        # Cevap Anahtarı Seçimi
+        self.cevap_anahtari_var = tk.StringVar()
+        self.cevap_anahtari_menu = ctk.CTkComboBox(
+            left_input_frame,
+            variable=self.cevap_anahtari_var,
+            values=["Evet", "Hayır"],
             font=ctk.CTkFont(family="Segoe UI", size=14),
-            width=100,
-            height=40,
-            corner_radius=10,
-            placeholder_text="Sayı girin..."
+            width=320,
+            height=45,
+            corner_radius=12,
+            border_width=2,
+            border_color="#e2e8f0",
+            button_color="#ed8936",
+            button_hover_color="#dd6b20",
+            dropdown_hover_color="#f7fafc",
+            state="readonly"
         )
-        self.soru_entry.pack(side="left")
+        self.cevap_anahtari_menu._entry.bind("<Button-1>", lambda e: self.cevap_anahtari_menu._open_dropdown_menu())
+        self.cevap_anahtari_menu.set("Cevap anahtarı eklensin mi?")
+        self.cevap_anahtari_menu.pack(anchor="w", pady=(0, 15), padx=(10, 0))
 
-        # Hızlı seçim butonları
-        for num in [1, 2, 3, 5, 10]:
-            btn = ctk.CTkButton(
-                soru_frame,
-                text=str(num),
-                width=40,
-                height=35,
-                corner_radius=8,
-                fg_color="#6c757d",
-                hover_color="#5a6268",
-                command=lambda n=num: self._set_soru_sayisi(n)
+        # Toplam soru sayısı
+        # self.total_frame = ctk.CTkFrame(
+        #     left_input_frame, 
+        #     fg_color="#ebf8ff",
+        #     corner_radius=12,
+        #     border_width=1,
+        #     border_color="#90cdf4"
+        # )
+        # self.total_frame.pack(fill="x", pady=(5, 0),padx=(10,10))
+
+        # self.total_label = ctk.CTkLabel(
+        #     self.total_frame,
+        #     text="Toplam Soru Sayısı: 0",
+        #     font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
+        #     text_color="#2b6cb0"
+        # )
+        # self.total_label.pack(pady=10,padx=(10,10))
+
+        # Sağ taraf - Konu Dağılımı
+        right_distribution_frame = ctk.CTkFrame(
+            main_horizontal_frame, 
+            fg_color="#ffffff",
+            corner_radius=16,
+            border_width=1,
+            border_color="#e2e8f0"
+        )
+        right_distribution_frame.pack(side="right", fill="both", expand=True, ipadx=30, ipady=10)
+
+        # Konu dağılımı başlığı
+        dist_label = ctk.CTkLabel(
+            right_distribution_frame, 
+            text="Konu Başına Soru Sayısı",
+            font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
+            text_color="#1a202c"
+        )
+        dist_label.pack(pady=(10, 10), anchor="w",padx=(10,0))
+
+        # Scrollable frame
+        self.topics_frame = ctk.CTkScrollableFrame(
+            right_distribution_frame,
+            fg_color="#f7fafc",
+            corner_radius=12,
+            border_width=1,
+            border_color="#e2e8f0",
+            height=280,
+            scrollbar_button_color="#cbd5e0",
+            scrollbar_button_hover_color="#a0aec0"
+        )
+        self.topics_frame.pack(fill="both", expand=True, padx=5)
+
+        self.konu_entry_vars = {}
+
+        for konu_adi in self.secilen_konular.keys():
+            # Her konu için frame
+            konu_frame = ctk.CTkFrame(
+                self.topics_frame, 
+                fg_color="#ffffff",
+                corner_radius=10,
+                border_width=1,
+                border_color="#e2e8f0"
             )
-            btn.pack(side="left", padx=(10, 0))
+            konu_frame.pack(fill="x", pady=2, padx=8, ipady=8, ipadx=12)
+
+            # Konu adı
+            konu_label = ctk.CTkLabel(
+                konu_frame,
+                text=konu_adi,
+                font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+                text_color="#e53e3e"
+            )
+            konu_label.pack(side="left", anchor="w",padx=(10,10))
+
+            # Sağ taraf için container
+            right_container = ctk.CTkFrame(konu_frame, fg_color="transparent")
+            right_container.pack(side="right", padx=(10, 0))
+
+            # Soru sayısı girişi
+            var = tk.StringVar(value="1")
+            self.konu_entry_vars[konu_adi] = var
+
+            entry = ctk.CTkEntry(
+                right_container,
+                textvariable=var,
+                font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+                width=65,
+                height=32,
+                corner_radius=8,
+                border_width=2,
+                border_color="#e2e8f0",
+                fg_color="#ffffff"
+            )
+            entry.pack(side="right", padx=(12, 0))
+
+            # Hızlı seçim butonları
+            button_colors = ["#4299e1", "#48bb78", "#ed8936", "#9f7aea"]
+            hover_colors = ["#3182ce", "#38a169", "#dd6b20", "#805ad5"]
+
+            for j, num in enumerate([1, 2, 3, 5]):
+                btn = ctk.CTkButton(
+                    right_container,
+                    text=str(num),
+                    width=32,
+                    height=32,
+                    corner_radius=8,
+                    fg_color=button_colors[j],
+                    hover_color=hover_colors[j],
+                    font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+                    text_color="#ffffff",
+                    command=lambda n=num, v=var: v.set(str(n))
+                )
+                btn.pack(side="right", padx=(0, 4))
+
+        # Entry değişikliklerini izle
+        # for var in self.konu_entry_vars.values():
+        #     var.trace('w', self.update_total)
 
         # Devam Et butonu
         devam_btn = ctk.CTkButton(
             self.form_frame,
-            text="✅ Devam Et",
-            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
-            width=150,
-            height=45,
-            corner_radius=12,
-            fg_color="#28a745",
-            hover_color="#218838",
+            text="Devam Et",
+            font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
+            width=200,
+            height=50,
+            corner_radius=16,
+            fg_color="#48bb78",
+            hover_color="#38a169",
             text_color="#ffffff",
             command=self.devam_et
         )
-        devam_btn.pack(pady=(0, 30))
+        devam_btn.pack(pady=(10, 10))
+    
+    def create_question_distribution(self):
+        """Her konu için soru sayısı seçimi"""
+        dist_label = ctk.CTkLabel(
+            self.form_frame, 
+            text="Konu Başına Soru Sayısı:",
+            font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
+            text_color="#495057"
+        )
+        dist_label.pack(pady=(10, 10), anchor="w", padx=40)
 
-    def _set_soru_sayisi(self, num):
-        """Soru sayısını ayarla ve log kaydet"""
-        self.soru_sayisi_var.set(str(num))
-        self.logger.debug(f"Soru sayısı {num} olarak ayarlandı")
+        # Container for topics frame - sola dayalı ve genişliği sınırlı
+        topics_container = ctk.CTkFrame(self.form_frame, fg_color="transparent")
+        topics_container.pack(anchor="w", padx=40, pady=(0, 20))
 
-    def get_konu_klasorleri(self):
-        """Konu klasörlerini al"""
+        # Scrollable frame for topics - sabit genişlik
+        self.topics_frame = ctk.CTkScrollableFrame(
+            topics_container,
+            fg_color="#ffffff",
+            corner_radius=10,
+            height=200,
+            width=500
+        )
+        self.topics_frame.pack(anchor="w")
+
+        self.konu_entry_vars = {}
+
+        for konu_adi in self.secilen_konular.keys():
+            # Her konu için frame - ikinci koddaki gibi
+            konu_frame = ctk.CTkFrame(self.topics_frame, fg_color="transparent")
+            konu_frame.pack(fill="x", pady=2, padx=5)  # İkinci koddaki gibi
+
+            # Konu adı - kırmızı renk
+            konu_label = ctk.CTkLabel(
+                konu_frame,
+                text=konu_adi,
+                font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+                text_color="#e74c3c"
+            )
+            konu_label.pack(side="left", anchor="w")  # Width'i kaldırdım
+
+            # Sağ taraf için container
+            right_container = ctk.CTkFrame(konu_frame, fg_color="transparent")
+            right_container.pack(side="right")
+
+            # Soru sayısı girişi
+            var = tk.StringVar(value="1")
+            self.konu_entry_vars[konu_adi] = var
+
+            entry = ctk.CTkEntry(
+                right_container,
+                textvariable=var,
+                font=ctk.CTkFont(family="Segoe UI", size=14),
+                width=60,
+                height=35,
+                corner_radius=8
+            )
+            entry.pack(side="right", padx=(10, 0))
+
+            # Hızlı seçim butonları - mavi renk
+            for num in [1, 2, 3, 5]:
+                btn = ctk.CTkButton(
+                    right_container,
+                    text=str(num),
+                    width=30,
+                    height=30,
+                    corner_radius=6,
+                    fg_color="#3498db",
+                    hover_color="#2980b9",
+                    font=ctk.CTkFont(size=10),
+                    command=lambda n=num, v=var: v.set(str(n))
+                )
+                btn.pack(side="right", padx=(0, 5))
+
+        # Toplam soru sayısı gösterimi
+        # self.create_total_display()
+    
+    def update_total(self, *args):
+        """Toplam soru sayısını güncelle"""
         try:
-            self.logger.debug(f"Konu klasörleri alınıyor: {self.unite_klasor_yolu}")
-            klasorler = [d for d in os.listdir(self.unite_klasor_yolu) 
-                        if os.path.isdir(os.path.join(self.unite_klasor_yolu, d))]
+            toplam = 0
+            for var in self.konu_entry_vars.values():
+                try:
+                    sayi = int(var.get())
+                    if sayi > 0:
+                        toplam += sayi
+                except ValueError:
+                    pass
             
-            if klasorler:
-                self.logger.info(f"{len(klasorler)} konu klasörü bulundu")
-                return klasorler
-            else:
-                self.logger.warning("Hiç konu klasörü bulunamadı")
-                return ["(Klasör boş)"]
+            self.total_label.configure(text=f"Toplam Soru Sayısı: {toplam}")
         except Exception as e:
-            self.logger.error(f"Konu klasörleri alma hatası: {e}")
-            return ["(Hata oluştu)"]
+            self.logger.error(f"Toplam güncelleme hatası: {e}")
 
     def ana_menuye_don(self):
         """Ana menüye dön"""
         self.logger.info("Ana menüye dönülüyor")
         self.controller.ana_menuye_don()
 
-    def unite_sec_sayfasina_don(self):
-        """Ünite seçim sayfasına dön"""
-        self.logger.info("Ünite seçim sayfasına dönülüyor")
-        self.controller.show_frame("UniteSecme")
+    def konu_baslik_sayfasina_don(self):
+        """Konu başlık seçim sayfasına dön"""
+        self.logger.info("Konu başlık seçim sayfasına dönülüyor")
+        self.controller.show_frame("KonuBaslikSecme", 
+                                 ders_klasor_yolu=os.path.dirname(list(self.secilen_konular.values())[0]),
+                                 ders_adi=self.ders_adi)
 
     def devam_et(self):
         """Seçimleri doğrula ve önizleme ekranını göster"""
         self.logger.info("Devam et butonuna tıklandı")
         
         # Seçimleri al
-        secilen_konu = self.konu_var.get()
         soru_tipi = self.soru_tipi_var.get()
         zorluk = self.zorluk_var.get()
-
-        self.logger.debug(f"Seçimler - Konu: {secilen_konu}, Tip: {soru_tipi}, Zorluk: {zorluk}")
-
+        cevap_anahtari = self.cevap_anahtari_var.get()
+    
+        self.logger.debug(f"Seçimler - Tip: {soru_tipi}, Zorluk: {zorluk}, Cevap Anahtarı: {cevap_anahtari}")
+    
         # Validasyon
-        if any("seçin" in var.get().lower() for var in [self.konu_var, self.soru_tipi_var, self.zorluk_var]):
+        if "seçin" in soru_tipi.lower() or "seçin" in zorluk.lower() or "eklensin" in cevap_anahtari.lower():
             self.logger.warning("Eksik seçim tespit edildi")
-            self.show_error("Lütfen konu, soru tipi ve zorluk seviyesini seçin!")
-            return
-            
-        # Soru sayısı validasyonu
-        try:
-            soru_sayisi = int(self.soru_sayisi_var.get())
-            if soru_sayisi <= 0:
-                raise ValueError
-            self.logger.debug(f"Soru sayısı validasyonu başarılı: {soru_sayisi}")
-        except (ValueError, AttributeError):
-            self.logger.warning("Geçersiz soru sayısı girişi")
-            self.show_error("Lütfen geçerli bir soru sayısı girin!")
+            self.show_error("Lütfen tüm seçimleri yapın!\n- Soru tipi\n- Zorluk seviyesi\n- Cevap anahtarı")
             return
 
-        # Seçilen klasör yolunu oluştur
-        secilen_konu_path = os.path.join(self.unite_klasor_yolu, secilen_konu, soru_tipi.lower(), zorluk.lower())
-        self.logger.debug(f"Klasör yolu: {secilen_konu_path}")
-
-        # Klasördeki maksimum soru sayısını kontrol et
+        # Soru dağılımını kontrol et
         try:
-            gorseller = [f for f in os.listdir(secilen_konu_path) 
-                        if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))]
-            max_soru = len(gorseller)
+            toplam_soru = 0
+            soru_dagilimi = {}
             
-            self.logger.info(f"Klasörde {max_soru} görsel bulundu")
-
-            if soru_sayisi > max_soru:
-                self.logger.warning(f"İstenen soru sayısı ({soru_sayisi}) mevcut soruları ({max_soru}) aşıyor")
-                self.show_error(f"Seçtiğiniz zorluk seviyesinde sadece {max_soru} soru bulunuyor!")
+            for konu_adi, var in self.konu_entry_vars.items():
+                try:
+                    sayi = int(var.get())
+                    if sayi > 0:
+                        soru_dagilimi[konu_adi] = sayi
+                        toplam_soru += sayi
+                except ValueError:
+                    self.show_error(f"{konu_adi} için geçerli bir soru sayısı girin!")
+                    return
+            
+            if toplam_soru == 0:
+                self.show_error("En az bir konu için soru sayısı belirtmelisiniz!")
                 return
-            # Yazılı için bilgilendirme
-            if soru_tipi.lower() == "yazili" and soru_sayisi > 2:
-                self.logger.info("Yazılı için çoklu sayfa bilgilendirmesi gösteriliyor")
-                self.show_multipage_info(soru_sayisi)
+            
+            self.konu_soru_dagilimi = soru_dagilimi
+            self.logger.info(f"Toplam {toplam_soru} soru seçildi")
 
         except Exception as e:
-            self.logger.error(f"Klasör okuma hatası: {e}")
-            self.show_error("Seçilen klasörde görsel bulunamadı!")
+            self.logger.error(f"Soru dağılımı kontrolü hatası: {e}")
+            self.show_error("Soru sayıları kontrol edilirken hata oluştu!")
             return
 
+        # Her konu için soru mevcudiyeti kontrolü - Sadece boş klasör kontrolü
+        bos_konular = []
+        for konu_adi, istenen_sayi in soru_dagilimi.items():
+            mevcut_sayi = self.get_available_questions(konu_adi, soru_tipi, zorluk)
+            if mevcut_sayi == 0:  # Sadece tamamen boş klasörleri kontrol et
+                bos_konular.append(konu_adi)
+
+        if bos_konular:
+            self.logger.warning("Boş klasörler tespit edildi")
+            if len(bos_konular) == 1:
+                uyari_mesaji = f"'{bos_konular[0]}' konusunda seçilen zorluk seviyesinde ({zorluk}) soru bulunamadı!\n\nFarklı bir zorluk seviyesi seçin veya bu konuyu atlayın."
+            else:
+                konu_listesi = "', '".join(bos_konular)
+                uyari_mesaji = f"Şu konularda seçilen zorluk seviyesinde ({zorluk}) soru bulunamadı:\n\n'{konu_listesi}'\n\nFarklı bir zorluk seviyesi seçin veya bu konuları atlayın."
+
+            self.show_error(uyari_mesaji)
+            return
+
+        # Yetersiz soru kontrolü (istenen sayıdan az olanlar)
+        eksik_konular = []
+        for konu_adi, istenen_sayi in soru_dagilimi.items():
+            mevcut_sayi = self.get_available_questions(konu_adi, soru_tipi, zorluk)
+            if 0 < mevcut_sayi < istenen_sayi:  # Soru var ama yetersiz
+                eksik_konular.append(f"{konu_adi}: {istenen_sayi} istendi, {mevcut_sayi} mevcut")
+
+        if eksik_konular:
+            self.logger.warning("Yetersiz soru bulunan konular var")
+            hata_mesaji = "Bazı konularda yeterli soru yok:\n\n" + "\n".join(eksik_konular)
+            self.show_error(hata_mesaji)
+            return
+
+        # Yazılı için bilgilendirme
+        if soru_tipi.lower() == "yazili" and toplam_soru > 2:
+            self.logger.info("Yazılı için çoklu sayfa bilgilendirmesi gösteriliyor")
+            self.show_multipage_info(toplam_soru)
+
         # Rastgele görselleri seç
-        self.secilen_gorseller = self.rastgele_gorseller_sec(secilen_konu_path, soru_sayisi)
+        self.secilen_gorseller = self.secili_gorselleri_al(soru_tipi, zorluk)
 
         if self.secilen_gorseller:
             self.logger.info(f"{len(self.secilen_gorseller)} görsel seçildi, önizleme ekranı açılıyor")
             self.gorsel_onizleme_alani_olustur()
         else:
             self.logger.error("Hiç görsel seçilemedi")
-            self.show_error("Seçilen klasörde görsel bulunamadı!")
-  
-    def rastgele_gorseller_sec(self, klasor_yolu, adet):
-        """Belirtilen klasörden rastgele görsel seç"""
+            self.show_error("Seçilen konularda görsel bulunamadı!")
+
+    def get_available_questions(self, konu_adi, soru_tipi, zorluk):
+        """Bir konu için mevcut soru sayısını döndür"""
         try:
-            self.logger.debug(f"Rastgele görsel seçimi başlatılıyor - Yol: {klasor_yolu}, Adet: {adet}")
+            konu_path = self.secilen_konular[konu_adi]
+            klasor_yolu = os.path.join(konu_path, soru_tipi.lower(), zorluk.lower())
             
             if not os.path.exists(klasor_yolu):
-                self.logger.error(f"Klasör bulunamadı: {klasor_yolu}")
-                return []
+                return 0
                 
             gorseller = [f for f in os.listdir(klasor_yolu) 
                         if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))]
             
-            if not gorseller:
-                self.logger.warning("Klasörde uygun görsel bulunamadı")
-                return []
+            return len(gorseller)
+        except Exception as e:
+            self.logger.error(f"Mevcut soru sayısı hesaplama hatası - {konu_adi}: {e}")
+            return 0
 
-            import random
-            if len(gorseller) <= adet:
-                secilen = [os.path.join(klasor_yolu, f) for f in gorseller]
-                self.logger.info(f"Tüm görseller seçildi ({len(secilen)} adet)")
-            else:
-                secilen = [os.path.join(klasor_yolu, f) 
-                          for f in random.sample(gorseller, adet)]
-                self.logger.info(f"Rastgele {adet} görsel seçildi")
+    def secili_gorselleri_al(self, soru_tipi, zorluk):
+        """Her konudan belirtilen sayıda rastgele görsel seç"""
+        try:
+            tum_gorseller = []
             
-            return secilen
+            for konu_adi, sayi in self.konu_soru_dagilimi.items():
+                konu_path = self.secilen_konular[konu_adi]
+                klasor_yolu = os.path.join(konu_path, soru_tipi.lower(), zorluk.lower())
+                
+                if os.path.exists(klasor_yolu):
+                    gorseller = [f for f in os.listdir(klasor_yolu) 
+                               if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))]
+                    
+                    import random
+                    if len(gorseller) >= sayi:
+                        secilen = random.sample(gorseller, sayi)
+                    else:
+                        secilen = gorseller
+                    
+                    # Tam yol ile ekle
+                    for gorsel in secilen:
+                        tum_gorseller.append(os.path.join(klasor_yolu, gorsel))
+                    
+                    self.logger.debug(f"{konu_adi}: {len(secilen)} görsel seçildi")
+
+            # Listeyi karıştır
+            import random
+            random.shuffle(tum_gorseller)
+            
+            self.logger.info(f"Toplam {len(tum_gorseller)} görsel seçildi ve karıştırıldı")
+            return tum_gorseller
+            
         except Exception as e:
             self.logger.error(f"Görsel seçme hatası: {e}")
             return []
 
     def gorsel_onizleme_alani_olustur(self):
-        """Görsel önizleme alanını oluştur"""
+        """Görsel önizleme alanını oluştur - Yeni tasarım"""
         self.logger.info("Önizleme alanı oluşturuluyor")
-        
+
         # Form içeriğini temizle
         for widget in self.form_frame.winfo_children():
             widget.destroy()
 
-        # Seçim bilgilerini al
-        secilen_konu = self.konu_var.get()
-        zorluk = self.zorluk_var.get()
-        
-        # Başlık
-        onizleme_label = ctk.CTkLabel(
-            self.form_frame, 
-            text="📷 Seçilen Soruların Önizlemesi",
-            font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
-            text_color="#495057"
-        )
-        onizleme_label.pack(pady=(20, 10))
+        # Ana container - minimal padding
+        main_container = ctk.CTkFrame(self.form_frame, fg_color="transparent")
+        main_container.pack(fill="both", expand=True, padx=5, pady=5)
 
-        # Bilgi etiketi
+        # *** Üst bilgi çubuğunu sil veya çok küçült ***
+        # Bu kısmı tamamen kaldırabilirsiniz:
+        # info_frame = ctk.CTkFrame(main_container, fg_color="#ffffff", corner_radius=8, height=50)
+        # info_frame.pack(fill="x", pady=(0, 5))
+        # info_frame.pack_propagate(False)
+
+        # Bilgi metni
+        # konu_bilgisi = self.create_info_text()
+        # info_label = ctk.CTkLabel(...)
+
+        # Ana içerik alanı - yan yana düzen
+        content_frame = ctk.CTkFrame(main_container, fg_color="transparent")
+        content_frame.pack(fill="both", expand=True)
+
+        # Sol taraf - PDF önizleme (büyük alan)
+        pdf_container = ctk.CTkFrame(content_frame, fg_color="#f8f9fa", corner_radius=10)
+        pdf_container.pack(side="left", fill="both", expand=True, padx=(0, 5))
+
+        # Sağ taraf - Kontroller (sabit genişlik)
+        controls_container = ctk.CTkFrame(content_frame, fg_color="#ffffff", corner_radius=10, width=280)
+        controls_container.pack(side="right", fill="y", padx=(5, 0))
+        controls_container.pack_propagate(False)
+
+        # PDF önizlemesini göster
+        self.display_images_new(pdf_container, controls_container)
+
+        # Alt butonlar - kompakt
+        button_frame = ctk.CTkFrame(main_container, fg_color="transparent", height=60)
+        button_frame.pack(fill="x", pady=(5, 0))
+        button_frame.pack_propagate(False)
+
+        button_inner = ctk.CTkFrame(button_frame, fg_color="transparent")
+        button_inner.pack(expand=True)
+
+        # Bilgi metnini sol alt köşeye ekle - çok küçük
+        konu_bilgisi = self.create_info_text()
         info_label = ctk.CTkLabel(
-            self.form_frame,
-            text=f"📚 {secilen_konu} | 📝 {self.soru_tipi_var.get()} | ⚡ {zorluk} | 🔢 {len(self.secilen_gorseller)} soru",
-            font=ctk.CTkFont(family="Segoe UI", size=14),
+            button_inner,
+            text=konu_bilgisi,
+            font=ctk.CTkFont(family="Segoe UI", size=12),  # Çok küçük font
             text_color="#6c757d"
         )
-        info_label.pack(pady=(0, 15))
-
-        # Scrollable frame
-        scrollable_frame = ctk.CTkScrollableFrame(
-            self.form_frame,
-            fg_color="#ffffff",
-            corner_radius=10
-        )
-        scrollable_frame.pack(fill="both", expand=True, padx=20, pady=10)
-
-        # Görselleri göster
-        self.display_images(scrollable_frame)
-
-        # Butonlar
-        button_frame = ctk.CTkFrame(self.form_frame, fg_color="transparent")
-        button_frame.pack(pady=20)
+        info_label.pack(side="left", padx=(0, 20))
 
         # PDF oluştur butonu
         pdf_btn = ctk.CTkButton(
-            button_frame,
-            text="📄 PDF Oluştur",
-            command=lambda: self.pdf_olustur(secilen_konu, self.soru_tipi_var.get(), zorluk),
-            font=ctk.CTkFont(size=16, weight="bold"),
-            width=200,
-            height=45,
+            button_inner,
+            text="PDF Oluştur",
+            command=self.pdf_olustur,
+            font=ctk.CTkFont(size=15, weight="bold"),
+            width=160,
+            height=40,
+            corner_radius=10,
             fg_color="#28a745",
             hover_color="#218838"
         )
-        pdf_btn.pack(side="left", padx=10)
+        pdf_btn.pack(side="right", padx=(15,0))
 
         # Geri butonu
         back_btn = ctk.CTkButton(
-            button_frame,
-            text="⬅ Geri",
+            button_inner,
+            text="Geri",
             command=self.geri_don,
-            font=ctk.CTkFont(size=16, weight="bold"),
-            width=120,
-            height=45,
+            font=ctk.CTkFont(size=15, weight="bold"),
+            width=100,
+            height=40,
+            corner_radius=10,
             fg_color="#6c757d",
             hover_color="#5a6268"
         )
-        back_btn.pack(side="left", padx=10)
+        back_btn.pack(side="right")
+    
+    def display_images_new(self, pdf_container, controls_container):
+        """Yeni tasarımla görselleri göster"""
+        self.logger.debug("Yeni tasarımla görsel display başlatılıyor")
+
+        # Container'ları temizle
+        for widget in pdf_container.winfo_children():
+            widget.destroy()
+        for widget in controls_container.winfo_children():
+            widget.destroy()
+
+        # Soru tipine göre sayfa başı soru sayısı
+        sorular_per_sayfa = self._get_sorular_per_sayfa()
+        toplam_sayfa = math.ceil(len(self.secilen_gorseller) / sorular_per_sayfa)
+
+        if not hasattr(self, 'current_page'):
+            self.current_page = 0
+
+        # *** PDF başlığını kaldır ***
+        # pdf_title = ctk.CTkLabel(...) # Bu kısmı sil
+
+        # Sayfa navigasyon - daha kompakt, üst köşede
+        if toplam_sayfa > 1:
+            nav_frame = ctk.CTkFrame(pdf_container, fg_color="#ffffff", corner_radius=6, height=35)
+            nav_frame.pack(anchor="ne", padx=10, pady=5)  # Sağ üst köşe
+            nav_frame.pack_propagate(False)
+
+            # Önceki sayfa butonu
+            if self.current_page > 0:
+                prev_btn = ctk.CTkButton(
+                    nav_frame,
+                    text="◀",
+                    command=lambda: self.change_page_new(pdf_container, controls_container, -1),
+                    width=30, height=25,
+                    font=ctk.CTkFont(size=10, weight="bold"),
+                    fg_color="#007bff",
+                    hover_color="#0056b3"
+                )
+                prev_btn.pack(side="left", padx=2, pady=5)
+
+            # Sayfa bilgisi
+            page_info = ctk.CTkLabel(
+                nav_frame,
+                text=f"{self.current_page + 1}/{toplam_sayfa}",
+                font=ctk.CTkFont(size=11, weight="bold"),
+                text_color="#495057"
+            )
+            page_info.pack(side="left", padx=8, pady=5)
+
+            # Sonraki sayfa butonu
+            if self.current_page < toplam_sayfa - 1:
+                next_btn = ctk.CTkButton(
+                    nav_frame,
+                    text="▶",
+                    command=lambda: self.change_page_new(pdf_container, controls_container, 1),
+                    width=30, height=25,
+                    font=ctk.CTkFont(size=10, weight="bold"),
+                    fg_color="#007bff",
+                    hover_color="#0056b3"
+                )
+                next_btn.pack(side="left", padx=2, pady=5)
+
+        # PDF önizleme alanı - Daha büyük alan
+        preview_frame = ctk.CTkScrollableFrame(
+            pdf_container, 
+            fg_color="#e9ecef", 
+            corner_radius=8
+        )
+        preview_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))  # Üst padding'i 0 yap
+
+        # Mevcut sayfa için görselleri al
+        start_idx = self.current_page * sorular_per_sayfa
+        end_idx = min(start_idx + sorular_per_sayfa, len(self.secilen_gorseller))
+        sayfa_gorselleri = self.secilen_gorseller[start_idx:end_idx]
+
+        self.logger.debug(f"Sayfa {self.current_page + 1}: {start_idx}-{end_idx} arası görseller")
+
+        # PDF sayfası önizlemesi oluştur
+        pdf_preview = self.create_page_preview(sayfa_gorselleri, start_idx)
+
+        if pdf_preview:
+            # PDF görselini göster
+            pdf_label = tk.Label(
+                preview_frame,
+                image=pdf_preview,
+                bg="#e9ecef"
+            )
+            pdf_label.image = pdf_preview
+            pdf_label.pack(expand=True, pady=5)  # Padding'i azalt
+        else:
+            # Hata durumunda bilgi göster
+            error_label = ctk.CTkLabel(
+                preview_frame,
+                text="PDF önizlemesi oluşturulamadı",
+                font=ctk.CTkFont(size=14),
+                text_color="#dc3545"
+            )
+            error_label.pack(expand=True, pady=50)
+
+        # Sağ taraf kontroller
+        self.create_controls_panel(controls_container, sayfa_gorselleri, start_idx, pdf_container)
+    
+    def create_controls_panel(self, controls_container, sayfa_gorselleri, start_idx, pdf_container):
+        """Sağ taraf kontrol paneli"""
+
+        # Başlık
+        title_label = ctk.CTkLabel(
+            controls_container,
+            text="Soru Kontrolleri",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color="#2c3e50"
+        )
+        title_label.pack(pady=(15, 10))
+
+        # Scrollable frame
+        scroll_frame = ctk.CTkScrollableFrame(
+            controls_container,
+            fg_color="#f8f9fa",
+            corner_radius=8
+        )
+        scroll_frame.pack(fill="both", expand=True, padx=10, pady=(0, 15))
+
+        # Her soru için kontrol
+        for i, gorsel_path in enumerate(sayfa_gorselleri):
+            # Soru kartı
+            card = ctk.CTkFrame(scroll_frame, fg_color="#ffffff", corner_radius=8)
+            card.pack(fill="x", pady=5, padx=5)
+
+            # Soru bilgisi
+            soru_no = start_idx + i + 1
+            try:
+                cevap = get_answer_for_image(gorsel_path)
+            except:
+                cevap = "?"
+
+            # Üst bilgi
+            info_frame = ctk.CTkFrame(card, fg_color="transparent")
+            info_frame.pack(fill="x", padx=10, pady=(10, 5))
+
+            soru_label = ctk.CTkLabel(
+                info_frame,
+                text=f"Soru {soru_no}",
+                font=ctk.CTkFont(size=13, weight="bold"),
+                text_color="#495057"
+            )
+            soru_label.pack(side="left")
+
+            cevap_label = ctk.CTkLabel(
+                info_frame,
+                text=f"Cevap: {cevap}",
+                font=ctk.CTkFont(size=11),
+                text_color="#6c757d"
+            )
+            cevap_label.pack(side="right")
+
+            # Butonlar
+            btn_frame = ctk.CTkFrame(card, fg_color="transparent")
+            btn_frame.pack(fill="x", padx=10, pady=(0, 10))
+
+            # Güncelle butonu
+            update_btn = ctk.CTkButton(
+                btn_frame,
+                text="Güncelle",
+                width=80, height=30,
+                font=ctk.CTkFont(size=11),
+                fg_color="#17a2b8",
+                hover_color="#138496",
+                command=lambda idx=start_idx+i: self.gorseli_guncelle_new(idx, pdf_container)
+            )
+            update_btn.pack(side="left", padx=(0, 5))
+
+            # Sil butonu
+            remove_btn = ctk.CTkButton(
+                btn_frame,
+                text="Sil",
+                width=60, height=30,
+                font=ctk.CTkFont(size=11),
+                fg_color="#dc3545",
+                hover_color="#c82333",
+                command=lambda idx=start_idx+i: self.gorseli_kaldir_new(idx, pdf_container)
+            )
+            remove_btn.pack(side="left")
+    
+    def change_page_new(self, pdf_container, controls_container, direction):
+        """Yeni tasarımda sayfa değiştir"""
+        sorular_per_sayfa = self._get_sorular_per_sayfa()
+        toplam_sayfa = math.ceil(len(self.secilen_gorseller) / sorular_per_sayfa)
+
+        new_page = self.current_page + direction
+        if 0 <= new_page < toplam_sayfa:
+            old_page = self.current_page
+            self.current_page = new_page
+            self.logger.debug(f"Sayfa değişti: {old_page + 1} -> {new_page + 1}")
+
+            # Sayfa içeriğini yenile
+            self.display_images_new(pdf_container, controls_container)
+   
+    def gorseli_guncelle_new(self, index, pdf_container):
+        """Yeni tasarımda görsel güncelle"""
+        try:
+            # Mevcut güncelleme mantığını kullan
+            if 0 <= index < len(self.secilen_gorseller):
+                mevcut_gorsel_path = self.secilen_gorseller[index]
+                mevcut_konu = self.find_topic_from_path(mevcut_gorsel_path)
+
+                if not mevcut_konu:
+                    self.show_error("Görselin hangi konudan geldiği bulunamadı!")
+                    return
+
+                soru_tipi = self.soru_tipi_var.get()
+                zorluk = self.zorluk_var.get()
+                konu_path = self.secilen_konular[mevcut_konu]
+                klasor_yolu = os.path.join(konu_path, soru_tipi.lower(), zorluk.lower())
+
+                tum_gorseller = [f for f in os.listdir(klasor_yolu) 
+                               if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))]
+
+                if not tum_gorseller:
+                    self.show_error("Güncellenecek görsel bulunamadı!")
+                    return
+
+                secili_gorsel_adlari = [os.path.basename(g) for g in self.secilen_gorseller]
+                kullanilabilir_gorseller = [
+                    os.path.join(klasor_yolu, f) for f in tum_gorseller 
+                    if f not in secili_gorsel_adlari
+                ]
+
+                if not kullanilabilir_gorseller:
+                    self.show_error("Güncellenecek başka görsel kalmadı!")
+                    return
+
+                import random
+                yeni_gorsel = random.choice(kullanilabilir_gorseller)
+                self.secilen_gorseller[index] = yeni_gorsel
+
+                # Önizlemeyi yenile
+                self.gorsel_onizleme_alani_olustur()
+
+        except Exception as e:
+            self.logger.error(f"Görsel güncelleme hatası: {e}")
+            self.show_error("Görsel güncellerken bir hata oluştu!")
+
+    def gorseli_kaldir_new(self, index, pdf_container):
+        """Yeni tasarımda görsel kaldır"""
+        try:
+            if 0 <= index < len(self.secilen_gorseller):
+                kaldirilan_gorsel = self.secilen_gorseller.pop(index)
+                self.logger.info(f"Görsel kaldırıldı: {os.path.basename(kaldirilan_gorsel)}")
+
+                if not self.secilen_gorseller:
+                    self.show_notification(
+                        "Uyarı",
+                        "Tüm görseller kaldırıldı!\nYeni seçim yapmak için 'Geri' butonuna tıklayın.",
+                        geri_don=False 
+                    )
+                    return
+
+                # Sayfa kontrolü
+                sorular_per_sayfa = self._get_sorular_per_sayfa()
+                toplam_sayfa = math.ceil(len(self.secilen_gorseller) / sorular_per_sayfa)
+                if self.current_page >= toplam_sayfa:
+                    self.current_page = max(0, toplam_sayfa - 1)
+
+                # Önizlemeyi yenile
+                self.gorsel_onizleme_alani_olustur()
+
+        except Exception as e:
+            self.logger.error(f"Görsel kaldırma hatası: {e}")
+            self.show_error("Görsel kaldırılırken bir hata oluştu!")
+                                    
+    def create_info_text(self):
+        """Bilgi metnini oluştur"""
+        try:
+            soru_tipi = self.soru_tipi_var.get()
+            zorluk = self.zorluk_var.get()
+            
+            # Konu dağılımı metni
+            dagilim_parts = []
+            for konu, sayi in self.konu_soru_dagilimi.items():
+                if len(konu) > 15:
+                    konu_kisaltma = konu[:12] + "..."
+                else:
+                    konu_kisaltma = konu
+                dagilim_parts.append(f"{konu_kisaltma}({sayi})")
+            
+            dagilim_text = ", ".join(dagilim_parts)
+            toplam = sum(self.konu_soru_dagilimi.values())
+            
+            return f"{self.ders_adi} | {soru_tipi} | {zorluk} | Toplam {toplam} soru: {dagilim_text}"
+        except Exception as e:
+            self.logger.error(f"Bilgi metni oluşturma hatası: {e}")
+            return f"{self.ders_adi} | {len(self.secilen_gorseller)} soru"
 
     def gorseli_kaldir(self, index, parent_frame):
         """Seçilen görseli listeden kaldır ve önizlemeyi güncelle"""
@@ -455,13 +1013,13 @@ class KonuSecmePenceresi(ctk.CTkFrame):
             # Görseli listeden kaldır
             if 0 <= index < len(self.secilen_gorseller):
                 kaldirilan_gorsel = self.secilen_gorseller.pop(index)
-                self.logger.info(f"Görsel kaldırıldı: {os.path.basename(kaldirilan_gorsel)} (İndex: {index})")
+                self.logger.info(f"Görsel kaldırıldı: {os.path.basename(kaldirilan_gorsel)} (Index: {index})")
 
                 # Eğer hiç görsel kalmadıysa uyarı göster
                 if not self.secilen_gorseller:
                     self.logger.warning("Tüm görseller kaldırıldı")
                     self.show_notification(
-                        "⚠️ Uyarı",
+                        "Uyarı",
                         "Tüm görseller kaldırıldı!\nYeni seçim yapmak için 'Geri' butonuna tıklayın.",
                         geri_don=False 
                     )
@@ -487,21 +1045,28 @@ class KonuSecmePenceresi(ctk.CTkFrame):
     def gorseli_guncelle(self, index, parent_frame):
         """Seçilen görseli güncelle"""
         try:
-            self.logger.debug(f"Görsel güncelleniyor: İndex {index}")
+            self.logger.debug(f"Görsel güncelleniyor: Index {index}")
             
             if 0 <= index < len(self.secilen_gorseller):
-                # Mevcut klasör yolunu al
-                secilen_konu = self.konu_var.get()
+                # Mevcut görselin hangi konudan geldiğini bul
+                mevcut_gorsel_path = self.secilen_gorseller[index]
+                mevcut_konu = self.find_topic_from_path(mevcut_gorsel_path)
+                
+                if not mevcut_konu:
+                    self.show_error("Görselin hangi konudan geldiği bulunamadı!")
+                    return
+
+                # Aynı konudan farklı bir görsel seç
                 soru_tipi = self.soru_tipi_var.get()
                 zorluk = self.zorluk_var.get()
-                klasor_yolu = os.path.join(self.unite_klasor_yolu, secilen_konu, soru_tipi.lower(), zorluk.lower())
+                konu_path = self.secilen_konular[mevcut_konu]
+                klasor_yolu = os.path.join(konu_path, soru_tipi.lower(), zorluk.lower())
 
                 # Klasördeki tüm görselleri al
                 tum_gorseller = [f for f in os.listdir(klasor_yolu) 
                                if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))]
 
                 if not tum_gorseller:
-                    self.logger.warning("Güncellenecek görsel bulunamadı")
                     self.show_error("Güncellenecek görsel bulunamadı!")
                     return
 
@@ -515,7 +1080,6 @@ class KonuSecmePenceresi(ctk.CTkFrame):
                 ]
 
                 if not kullanilabilir_gorseller:
-                    self.logger.warning("Güncellenecek başka görsel kalmadı")
                     self.show_error("Güncellenecek başka görsel kalmadı!")
                     return
 
@@ -539,6 +1103,17 @@ class KonuSecmePenceresi(ctk.CTkFrame):
             self.logger.error(f"Görsel güncelleme hatası: {e}")
             self.show_error("Görsel güncellerken bir hata oluştu!")
 
+    def find_topic_from_path(self, gorsel_path):
+        """Görsel yolundan hangi konudan geldiğini bul"""
+        try:
+            for konu_adi, konu_path in self.secilen_konular.items():
+                if konu_path in gorsel_path:
+                    return konu_adi
+            return None
+        except Exception as e:
+            self.logger.error(f"Konu bulma hatası: {e}")
+            return None
+
     def guncelle_bilgi_etiketi(self):
         """Bilgi etiketindeki soru sayısını güncelle"""
         try:
@@ -547,12 +1122,8 @@ class KonuSecmePenceresi(ctk.CTkFrame):
             if len(widgets) >= 2:
                 info_widget = widgets[1]  # İkinci widget bilgi etiketi olmalı
                 if hasattr(info_widget, 'configure'):
-                    secilen_konu = self.konu_var.get()
-                    soru_tipi = self.soru_tipi_var.get()
-                    zorluk = self.zorluk_var.get()
-                    info_widget.configure(
-                        text=f"📚 {secilen_konu} | 📝 {soru_tipi} | ⚡ {zorluk} | 🔢 {len(self.secilen_gorseller)} soru"
-                    )
+                    yeni_bilgi = self.create_info_text()
+                    info_widget.configure(text=yeni_bilgi)
                     self.logger.debug("Bilgi etiketi güncellendi")
         except Exception as e:
             self.logger.error(f"Bilgi etiketi güncelleme hatası: {e}")
@@ -584,7 +1155,7 @@ class KonuSecmePenceresi(ctk.CTkFrame):
             if self.current_page > 0:
                 prev_btn = ctk.CTkButton(
                     nav_frame,
-                    text="⬅ Önceki Sayfa",
+                    text="← Önceki Sayfa",
                     command=lambda: self.change_page(parent_frame, -1),
                     width=120
                 )
@@ -602,7 +1173,7 @@ class KonuSecmePenceresi(ctk.CTkFrame):
             if self.current_page < toplam_sayfa - 1:
                 next_btn = ctk.CTkButton(
                     nav_frame,
-                    text="Sonraki Sayfa ➡",
+                    text="Sonraki Sayfa →",
                     command=lambda: self.change_page(parent_frame, 1),
                     width=120
                 )
@@ -613,12 +1184,6 @@ class KonuSecmePenceresi(ctk.CTkFrame):
         end_idx = min(start_idx + sorular_per_sayfa, len(self.secilen_gorseller))
         sayfa_gorselleri = self.secilen_gorseller[start_idx:end_idx]
 
-        # DEBUG ekleyin:
-        print(f"DEBUG - Önizleme sayfa {self.current_page + 1}:")
-        for i, gorsel in enumerate(sayfa_gorselleri):
-            print(f"  {i}: {os.path.basename(gorsel)}")
-        
-        # Logger ile de aynı bilgiyi loglayın
         self.logger.debug(f"Sayfa {self.current_page + 1} için {len(sayfa_gorselleri)} görsel gösteriliyor")
  
         # PDF sayfası önizlemesi oluştur
@@ -676,7 +1241,7 @@ class KonuSecmePenceresi(ctk.CTkFrame):
         # Başlık
         title_label = ctk.CTkLabel(
             parent_container,
-            text="🔧 Soru İşlemleri",
+            text="Soru İşlemleri",
             font=ctk.CTkFont(size=16, weight="bold"),
             text_color="#495057"
         )
@@ -730,7 +1295,7 @@ class KonuSecmePenceresi(ctk.CTkFrame):
             # Güncelle butonu
             update_btn = ctk.CTkButton(
                 btn_frame,
-                text="🔄 Güncelle",
+                text="Güncelle",
                 width=80, height=30,
                 font=ctk.CTkFont(size=11),
                 fg_color="#3498db",
@@ -742,7 +1307,7 @@ class KonuSecmePenceresi(ctk.CTkFrame):
             # Sil butonu
             remove_btn = ctk.CTkButton(
                 btn_frame,
-                text="🗑️ Sil",
+                text="Sil",
                 width=60, height=30,
                 font=ctk.CTkFont(size=11),
                 fg_color="#e74c3c",
@@ -921,7 +1486,7 @@ class KonuSecmePenceresi(ctk.CTkFrame):
                 self.logger.error(f"Test soru {i+1} yerleştirme hatası: {e}")
 
     def geri_don(self):
-        """Konu seçim ekranına geri dön"""
+        """Soru parametre seçim ekranına geri dön"""
         try:
             self.logger.info("Geri dön butonuna tıklandı")
             
@@ -934,12 +1499,12 @@ class KonuSecmePenceresi(ctk.CTkFrame):
 
         except Exception as e:
             self.logger.error(f"Geri dönüş hatası: {e}")
-            # Hata durumunda ünite seçimine dön
-            self.unite_sec_sayfasina_don()
+            # Hata durumunda konu başlık seçimine dön
+            self.konu_baslik_sayfasina_don()
 
-    def pdf_olustur(self, konu, soru_tipi, zorluk):
+    def pdf_olustur(self):
         """PDF oluştur ve kullanıcıya bildir"""
-        self.logger.info(f"PDF oluşturma başlatıldı - {konu}, {soru_tipi}, {zorluk}")
+        self.logger.info(f"PDF oluşturma başlatıldı - {self.ders_adi}")
         
         try:
             # Reportlab modülü kontrolü
@@ -949,10 +1514,8 @@ class KonuSecmePenceresi(ctk.CTkFrame):
             except ImportError:
                 self.logger.error("Reportlab modülü bulunamadı")
                 self.show_notification(
-                    "❌ Eksik Modül",
-                    "📦 PDF oluşturmak için 'reportlab' modülü gerekli.\n\n"
-                    "💡 Çözüm: Terminal'e şunu yazın:\n"
-                    "pip install reportlab"
+                    "Eksik Modül",
+                    "PDF oluşturmak için 'reportlab' modülü gerekli.\n\nÇözüm: Terminal'e şunu yazın:\npip install reportlab"
                 )
                 return
 
@@ -961,7 +1524,7 @@ class KonuSecmePenceresi(ctk.CTkFrame):
                 self.logger.debug("PDFCreator import edildi")
             except ImportError as e:
                 self.logger.error(f"PDFCreator import hatası: {e}")
-                self.basit_pdf_olustur(konu, soru_tipi, zorluk)
+                self.basit_pdf_olustur()
                 return
 
             # Cevap bilgisini alma
@@ -974,10 +1537,17 @@ class KonuSecmePenceresi(ctk.CTkFrame):
 
             # PDF oluştur
             pdf = PDFCreator()
-            pdf.soru_tipi = soru_tipi
-            pdf.baslik_ekle(f"{konu} - {soru_tipi} - {zorluk} Seviyesi")
+            pdf.soru_tipi = self.soru_tipi_var.get()
+            
+            # Başlık oluştur
+            konu_listesi = ", ".join(list(self.konu_soru_dagilimi.keys())[:3])  # İlk 3 konu
+            if len(self.konu_soru_dagilimi) > 3:
+                konu_listesi += f" ve {len(self.konu_soru_dagilimi)-3} konu daha"
+            
+            baslik = f"{self.ders_adi} - {konu_listesi} - {self.soru_tipi_var.get()} - {self.zorluk_var.get()}"
+            pdf.baslik_ekle(baslik)
 
-            self.logger.debug(f"PDF'e geçen soru tipi: {soru_tipi}")
+            self.logger.debug(f"PDF'e geçen soru tipi: {self.soru_tipi_var.get()}")
 
             # Görselleri ve cevapları ekle
             cevaplar = []
@@ -1001,7 +1571,7 @@ class KonuSecmePenceresi(ctk.CTkFrame):
                 title="PDF'i Nereye Kaydetmek İstersiniz?",
                 defaultextension=".pdf",
                 filetypes=[("PDF Dosyası", "*.pdf")],
-                initialfile=f"{konu}_{soru_tipi}_{zorluk}_{len(self.secilen_gorseller)}_soru.pdf"
+                initialfile=f"{self.ders_adi}_{self.soru_tipi_var.get()}_{self.zorluk_var.get()}_{len(self.secilen_gorseller)}_soru.pdf"
             )
 
             if cikti_dosya:
@@ -1014,16 +1584,15 @@ class KonuSecmePenceresi(ctk.CTkFrame):
                     
                     # Başarılı bildirimi
                     self.show_notification(
-                        "✅ PDF Başarıyla Oluşturuldu!",
-                        f"📁 Kayıt Yeri: {kayit_yeri}\n\n"
-                        f"✨ {len(self.secilen_gorseller)} soru PDF formatında kaydedildi"
+                        "PDF Başarıyla Oluşturuldu!",
+                        f"Kayıt Yeri: {kayit_yeri}\n\n{len(self.secilen_gorseller)} soru PDF formatında kaydedildi\n\nKonu Dağılımı:\n" + 
+                        "\n".join([f"• {konu}: {sayi} soru" for konu, sayi in self.konu_soru_dagilimi.items()])
                     )
                 else:
                     self.logger.error("PDF kaydedilemedi")
                     self.show_notification(
-                        "❌ PDF Oluşturulamadı",
-                        "📄 PDF oluşturulurken bir hata oluştu.\n"
-                        "Lütfen tekrar deneyin."
+                        "PDF Oluşturulamadı",
+                        "PDF oluşturulurken bir hata oluştu.\nLütfen tekrar deneyin."
                     )
             else:
                 self.logger.info("Kullanıcı PDF kaydetmeyi iptal etti")
@@ -1031,11 +1600,11 @@ class KonuSecmePenceresi(ctk.CTkFrame):
         except Exception as e:
             self.logger.error(f"PDF oluşturma genel hatası: {e}")
             self.show_notification(
-                "❌ Hata",
+                "Hata",
                 f"Beklenmeyen bir hata oluştu:\n{str(e)}\n\nLütfen konsolu kontrol edin."
             )
 
-    def basit_pdf_olustur(self, konu, soru_tipi, zorluk):
+    def basit_pdf_olustur(self):
         """Basit PDF oluşturma - PDFCreator sınıfı import edilemediğinde"""
         self.logger.warning("Basit PDF oluşturma moduna geçildi")
         
@@ -1046,19 +1615,12 @@ class KonuSecmePenceresi(ctk.CTkFrame):
             from reportlab.lib.units import inch
             from reportlab.lib import colors
 
-            # Cevap bilgisini alma
-            try:
-                cevap_bilgisi_mevcut = True
-            except ImportError:
-                cevap_bilgisi_mevcut = False
-                self.logger.warning("Basit PDF - Cevap bilgisi modülü bulunamadı")
-
             # Kaydetme konumu sor
             cikti_dosya = filedialog.asksaveasfilename(
                 title="PDF'i Nereye Kaydetmek İstersiniz?",
                 defaultextension=".pdf",
                 filetypes=[("PDF Dosyası", "*.pdf")],
-                initialfile=f"{konu}_{soru_tipi}_{zorluk}_{len(self.secilen_gorseller)}_soru.pdf"
+                initialfile=f"{self.ders_adi}_{self.soru_tipi_var.get()}_{self.zorluk_var.get()}_{len(self.secilen_gorseller)}_soru.pdf"
             )
 
             if not cikti_dosya:
@@ -1070,55 +1632,23 @@ class KonuSecmePenceresi(ctk.CTkFrame):
             styles = getSampleStyleSheet()
 
             # Başlık ekle
-            baslik = Paragraph(f"{konu} - {soru_tipi} - {zorluk} Seviyesi", styles["Title"])
+            konu_listesi = ", ".join(list(self.konu_soru_dagilimi.keys())[:2])
+            if len(self.konu_soru_dagilimi) > 2:
+                konu_listesi += f" ve diğerleri"
+            
+            baslik_text = f"{self.ders_adi} - {konu_listesi} - {self.soru_tipi_var.get()} - {self.zorluk_var.get()}"
+            baslik = Paragraph(baslik_text, styles["Title"])
             story.append(baslik)
             story.append(Spacer(1, 0.5*inch))
 
-            # Görselleri ve cevapları ekle
-            cevaplar = []
+            # Görselleri ekle
             for gorsel_yolu in self.secilen_gorseller:
                 try:
                     img = Image(gorsel_yolu, width=6*inch, height=4*inch)
                     story.append(img)
-
-                    # Cevap bilgisini ekle
-                    if cevap_bilgisi_mevcut:
-                        try:
-                            cevap = get_answer_for_image(gorsel_yolu)
-                            cevaplar.append(cevap)
-                            cevap_stili = styles["Normal"]
-                            cevap_stili.alignment = 1  # Ortalama
-                            cevap_paragraf = Paragraph(f"Cevap: {cevap}", cevap_stili)
-                            story.append(cevap_paragraf)
-                        except Exception as e:
-                            self.logger.error(f"Basit PDF cevap alma hatası: {e}")
-
                     story.append(Spacer(1, 0.3*inch))
                 except Exception as e:
                     self.logger.error(f"Basit PDF görsel ekleme hatası: {e}")
-
-            # Cevap anahtarını ekle
-            if cevap_bilgisi_mevcut and cevaplar:
-                story.append(Spacer(1, 0.5*inch))
-                story.append(Paragraph("CEVAP ANAHTARI", styles["Heading1"]))
-                story.append(Spacer(1, 0.2*inch))
-
-                # Cevapları tablo formatında göster
-                data = []
-                for i, cevap in enumerate(cevaplar, 1):
-                    data.append([f"{i}. Soru", cevap])
-
-                tablo = Table(data, colWidths=[1*inch, 1*inch])
-                tablo.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, -1), colors.white),
-                    ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
-                    ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
-                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
-                ]))
-
-                story.append(tablo)
 
             # PDF'i kaydet
             doc = SimpleDocTemplate(cikti_dosya, pagesize=letter)
@@ -1127,22 +1657,21 @@ class KonuSecmePenceresi(ctk.CTkFrame):
             self.logger.info(f"Basit PDF başarıyla oluşturuldu: {os.path.basename(cikti_dosya)}")
 
             self.show_notification(
-                "✅ PDF Başarıyla Oluşturuldu!",
-                f"📁 Kayıt Yeri: {os.path.basename(cikti_dosya)}\n\n"
-                f"✨ {len(self.secilen_gorseller)} soru PDF formatında kaydedildi"
+                "PDF Başarıyla Oluşturuldu!",
+                f"Kayıt Yeri: {os.path.basename(cikti_dosya)}\n\n{len(self.secilen_gorseller)} soru PDF formatında kaydedildi"
             )
 
         except Exception as e:
             self.logger.error(f"Basit PDF oluşturma hatası: {e}")
             self.show_notification(
-                "❌ Hata",
+                "Hata",
                 f"PDF oluşturulurken hata: {str(e)}"
             )
 
     def show_error(self, message):
         """Hata mesajını göster"""
         self.logger.warning(f"Hata mesajı gösteriliyor: {message}")
-        self._show_dialog("⚠️ Uyarı", message, "#dc3545")
+        self._show_dialog("Uyarı", message, "#dc3545")
 
     def show_notification(self, title, message, geri_don=False):
         """Bildirim göster"""
@@ -1150,7 +1679,7 @@ class KonuSecmePenceresi(ctk.CTkFrame):
         
         notify_window = ctk.CTkToplevel(self.master)
         notify_window.title(title)
-        notify_window.geometry("400x250")
+        notify_window.geometry("500x350")
         notify_window.resizable(False, False)
         notify_window.transient(self.master)
         notify_window.grab_set()
@@ -1161,8 +1690,8 @@ class KonuSecmePenceresi(ctk.CTkFrame):
         master_width = self.master.winfo_width()
         master_height = self.master.winfo_height()
 
-        modal_width = 400
-        modal_height = 250
+        modal_width = 500
+        modal_height = 350
 
         x = master_x + (master_width // 2) - (modal_width // 2)
         y = master_y + (master_height // 2) - (modal_height // 2)
@@ -1170,20 +1699,20 @@ class KonuSecmePenceresi(ctk.CTkFrame):
 
         icon_label = ctk.CTkLabel(
             notify_window,
-            text=title.split()[0],
+            text="✅" if "Başarıyla" in title else "⚠️",
             font=ctk.CTkFont(size=48),
-            text_color="#27ae60" if "✅" in title else "#e74c3c"
+            text_color="#27ae60" if "Başarıyla" in title else "#e74c3c"
         )
         icon_label.pack(pady=20)
 
         message_label = ctk.CTkLabel(
             notify_window,
             text=message,
-            font=ctk.CTkFont(size=14),
+            font=ctk.CTkFont(size=12),
             justify="center",
-            wraplength=350
+            wraplength=450
         )
-        message_label.pack(pady=10)
+        message_label.pack(pady=10, padx=20)
 
         def geri_don_ve_kapat():
             notify_window.destroy()
@@ -1258,37 +1787,24 @@ class KonuSecmePenceresi(ctk.CTkFrame):
         }
         return color_map.get(hex_color, hex_color)
 
-    def show_quality_warning(self, istenen_sayi, max_sayi):
-        """Yazılı kalite uyarısı göster"""
-        message = (
-            f"📋 Yazılı sınavlarda kaliteli görüntü için\n"
-            f"sayfa başına maksimum 2 soru önerilir.\n\n"
-            f"🎯 İstediğiniz: {istenen_sayi} soru\n"
-            f"📚 Mevcut: {max_sayi} soru\n\n"
-        f"Devam etmek istiyor musunuz?"
-        )
-        # Basit uyarı penceresi
-        self._show_dialog("⚠️ Kalite Uyarısı", message, "#f39c12")
-
     def show_multipage_info(self, istenen_sayi):
         """Yazılı çoklu sayfa bilgilendirmesi göster"""
         import math
         sayfa_sayisi = math.ceil(istenen_sayi / 2)
         
         message = (
-            f"📋 Yazılı şablonunda görsel kalitesi için\n"
+            f"Yazılı şablonunda görsel kalitesi için\n"
             f"sayfa başına maksimum 2 soru yerleştirilir.\n\n"
-        f"🎯 Seçtiğiniz soru sayısı: {istenen_sayi}\n"
-        f"📄 Oluşacak sayfa sayısı: {sayfa_sayisi}\n\n"
-        f"Kaliteli PDF için bu şekilde devam edilecek."
+            f"Seçtiğiniz soru sayısı: {istenen_sayi}\n"
+            f"Oluşacak sayfa sayısı: {sayfa_sayisi}\n\n"
+            f"Kaliteli PDF için bu şekilde devam edilecek."
         )
     
         # Bilgilendirme penceresi (sadece "Tamam" butonu)
-        self._show_dialog("📋 Yazılı PDF Bilgisi", message, "#17a2b8")
+        self._show_dialog("Yazılı PDF Bilgisi", message, "#17a2b8")
 
 if __name__ == "__main__":
     root = ctk.CTk()
     root.state('zoomed')
     app = KonuSecmePenceresi(root, None, ".")
     root.mainloop()
-            #
