@@ -19,13 +19,13 @@ SCROLL_BG = "#e6e6e6"
 BTN_BG = "#4a90e2"
 BTN_FG = "#ffffff"
 
-class UniteSecmePenceresi(ctk.CTkFrame):
+class DersSecmePenceresi(ctk.CTkFrame):
     def __init__(self, parent, controller):
         super().__init__(parent, fg_color=BG_COLOR)
         self.controller = controller
         self.current_buttons = []
         self.ana_klasor_yolu = None  # Ana klasör yolunu saklamak için
-        logger.info("UniteSecmePenceresi başlatılıyor")
+        logger.info("DersSecmePenceresi başlatılıyor")
         self.setup_ui()
 
     def setup_ui(self):
@@ -242,5 +242,5 @@ class UniteSecmePenceresi(ctk.CTkFrame):
 if __name__ == "__main__":
     root = ctk.CTk()
     root.state('zoomed')
-    app = UniteSecmePenceresi(root, None)
+    app = DersSecmePenceresi(root, None)
     root.mainloop()

@@ -417,9 +417,13 @@ class PDFCreator:
                     c.showPage()
                     sayfa_no += 1
 
-            if self.cevap_listesi:
+            
+            if self.cevap_listesi and len(self.cevap_listesi) > 0:
                 c.showPage()
                 self.create_answer_key_page(c)
+                self.logger.info("Cevap anahtarı sayfası eklendi")
+            else:
+                self.logger.info("Cevap anahtarı eklenmedi - liste boş veya istenmiyor")
 
             c.save()
             self.logger.info(f"PDF kaydedildi: {dosya_yolu}")
@@ -492,51 +496,69 @@ class PDFCreator:
         return yerlestirildi_sayisi
 
     def create_answer_key_page(self, canvas_obj):
-        """Cevap anahtari sayfasi olustur"""
+        """Cevap anahtari sayfasi olustur - 2 sütunlu düzen"""
         try:
             self.logger.info(f"Cevap anahtari sayfasi olusturuluyor ({len(self.cevap_listesi)} cevap)")
             page_width, page_height = A4
-            
-            canvas_obj.setFont("Helvetica-Bold", 18)
+
             title_text = "CEVAP ANAHTARI"
-            text_width = canvas_obj.stringWidth(title_text, "Helvetica-Bold", 18)
-            canvas_obj.drawString((page_width - text_width) / 2, page_height - 100, title_text)
-            
-            start_y = page_height - 150
             row_height = 25
-            
-            canvas_obj.setFont("Helvetica-Bold", 12)
-            canvas_obj.drawString(100, start_y, "Soru No")
-            canvas_obj.drawString(200, start_y, "Cevap")
-            canvas_obj.line(100, start_y - 5, 300, start_y - 5)
-            
-            canvas_obj.setFont("Helvetica", 10)
-            for i, cevap in enumerate(self.cevap_listesi):
-                y_pos = start_y - (i + 2) * row_height
-                if y_pos < 100:
-                    self.logger.debug("Cevap anahtari yeni sayfaya geciyor")
+
+            # 2 sütun parametreleri
+            col1_x_soru = 80
+            col1_x_cevap = 150
+            col2_x_soru = 320
+            col2_x_cevap = 390
+
+            max_rows_per_col = 22  # Her sütunda 22 satır
+            per_page = max_rows_per_col * 2  # 44 cevap/sayfa
+
+            total_answers = len(self.cevap_listesi)
+
+            for page_start in range(0, total_answers, per_page):
+                # Başlık
+                canvas_obj.setFont("Helvetica-Bold", 18)
+                text_width = canvas_obj.stringWidth(title_text, "Helvetica-Bold", 18)
+                canvas_obj.drawString((page_width - text_width) / 2, page_height - 100, title_text)
+
+                # Sütun başlıkları
+                start_y = page_height - 150
+                canvas_obj.setFont("Helvetica-Bold", 12)
+                canvas_obj.drawString(col1_x_soru, start_y, "Soru No")
+                canvas_obj.drawString(col1_x_cevap, start_y, "Cevap")
+                canvas_obj.line(col1_x_soru, start_y - 5, col1_x_cevap + 50, start_y - 5)
+
+                canvas_obj.drawString(col2_x_soru, start_y, "Soru No")
+                canvas_obj.drawString(col2_x_cevap, start_y, "Cevap")
+                canvas_obj.line(col2_x_soru, start_y - 5, col2_x_cevap + 50, start_y - 5)
+
+                canvas_obj.setFont("Helvetica", 10)
+
+                # Satır satır yaz: sol sütun 1..22, sağ sütun 23..44 (sayfa bazlı)
+                for row in range(max_rows_per_col):
+                    # Sol sütun indeksi
+                    left_idx = page_start + row
+                    if left_idx < total_answers:
+                        y_pos = start_y - (row + 2) * row_height
+                        canvas_obj.drawString(col1_x_soru, y_pos, f"{left_idx + 1}")
+                        canvas_obj.drawString(col1_x_cevap, y_pos, str(self.cevap_listesi[left_idx]))
+
+                    # Sağ sütun indeksi
+                    right_idx = page_start + max_rows_per_col + row
+                    if right_idx < total_answers:
+                        y_pos = start_y - (row + 2) * row_height
+                        canvas_obj.drawString(col2_x_soru, y_pos, f"{right_idx + 1}")
+                        canvas_obj.drawString(col2_x_cevap, y_pos, str(self.cevap_listesi[right_idx]))
+
+                # Sonraki sayfaya geç (varsa)
+                if page_start + per_page < total_answers:
                     canvas_obj.showPage()
-                    canvas_obj.setFont("Helvetica-Bold", 18)
-                    text_width = canvas_obj.stringWidth(title_text, "Helvetica-Bold", 18)
-                    canvas_obj.drawString((page_width - text_width) / 2, page_height - 100, title_text)
-                    
-                    canvas_obj.setFont("Helvetica-Bold", 12)
-                    canvas_obj.drawString(100, page_height - 150, "Soru No")
-                    canvas_obj.drawString(200, page_height - 150, "Cevap")
-                    canvas_obj.line(100, page_height - 155, 300, page_height - 155)
-                    
-                    start_y = page_height - 150
-                    y_pos = start_y - 2 * row_height
-                    canvas_obj.setFont("Helvetica", 10)
-                
-                canvas_obj.drawString(100, y_pos, f"{i + 1}")
-                canvas_obj.drawString(200, y_pos, str(cevap))
-            
-            self.logger.info("Cevap anahtari sayfasi tamamlandi")
+
+            self.logger.info("Cevap anahtari sayfasi tamamlandi - 2 sütunlu düzen (1-22 sol, 23-44 sağ)")
                 
         except Exception as e:
             self.logger.error(f"Cevap anahtari olusturma hatasi: {e}")
-    
+
     def _basit_pdf_olustur(self, dosya_yolu):
         """Sablon bulunamazsa basit PDF olustur"""
         try:
