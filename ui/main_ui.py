@@ -1,7 +1,8 @@
 import customtkinter as ctk
 from ui.ders_sec_ui import DersSecmePenceresi
 from ui.konu_baslik_sec_ui import KonuBaslikSecmePenceresi
-from ui.soru_parametresi_sec_ui import SoruParametresiSecmePenceresi 
+from ui.soru_parametresi_sec_ui import SoruParametresiSecmePenceresi
+from ui.resim_yonetimi_ui import ResimYonetimiPenceresi
 import logging
 
 
@@ -50,6 +51,10 @@ class AnaPencere(ctk.CTk):
         # Ders Seçme (eski UniteSecme)
         self.frames["UniteSecme"] = DersSecmePenceresi(self.container, self)
         self.frames["UniteSecme"].grid(row=0, column=0, sticky="nsew")
+        
+        # Resim Yönetimi
+        self.frames["ResimYonetimi"] = ResimYonetimiPenceresi(self.container, self)
+        self.frames["ResimYonetimi"].grid(row=0, column=0, sticky="nsew")
 
     def show_frame(self, frame_name, **kwargs):
         """Frame'i göster"""
@@ -151,28 +156,9 @@ class AnaMenu(ctk.CTkFrame):
         self.controller.show_frame("UniteSecme")
 
     def klasor_yonetimi_ekranini_ac(self):
-        """Klasör yönetimi ekranını göster (gelecekte implement edilecek)"""
-        logger.warning("'Klasör Yönetimi' butonuna tıklandı (henüz implement edilmedi).")
-        # Geçici mesaj göster
-        temp_window = ctk.CTkToplevel(self.controller)
-        temp_window.title("Bilgi")
-        temp_window.geometry("300x150")
-        temp_window.resizable(False, False)
-        
-        label = ctk.CTkLabel(
-            temp_window,
-            text="Klasör Yönetimi\n(Yapım Aşamasında)",
-            font=ctk.CTkFont(family="Segoe UI", size=14),
-            text_color="black"
-        )
-        label.pack(pady=40)
-        
-        ok_btn = ctk.CTkButton(
-            temp_window,
-            text="Tamam",
-            command=temp_window.destroy
-        )
-        ok_btn.pack(pady=10)
+        """Resim yönetimi ekranını göster"""
+        logger.info("'Klasör Yönetimi' butonuna tıklandı.")
+        self.controller.show_frame("ResimYonetimi")
 
 # if __name__ == "__main__":
 #     app = AnaPencere()

@@ -11,6 +11,9 @@ from datetime import datetime
 from logic.answer_utils import get_answer_for_image
 from logic.pdf_generator import PDFCreator
 
+# Oturum bazlı yazılı bilgilendirme gösterim bayrağı
+YAZILI_INFO_SHOWN = False
+
 # Modern tema ayarları
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("green")
@@ -46,25 +49,48 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
         self.setup_ui()
 
     def _setup_logger(self):
-        """Logger kurulumu"""
-        logger = logging.getLogger('KonuSecmeUI')
-        logger.setLevel(logging.INFO)
-        
-        # Eğer handler yoksa ekle (tekrar eklenmesini önler)
-        if not logger.handlers:
-            # Console handler
-            console_handler = logging.StreamHandler()
-            console_handler.setLevel(logging.INFO)
-            
-            # Formatter - dosya ve satır bilgisi ile
-            formatter = logging.Formatter(
-                '%(asctime)s | %(name)s | %(levelname)s | %(filename)s:%(lineno)d | %(funcName)s() | %(message)s',
-                datefmt='%H:%M:%S'
-            )
-            console_handler.setFormatter(formatter)
-            logger.addHandler(console_handler)
-        
-        return logger
+        """Merkezi log sistemini kullan: sadece modül logger'ını döndür."""
+        return logging.getLogger(__name__)
+
+    def _havuzu_sifirla(self):
+        """Kullanılan sorular havuzunu sıfırla"""
+        try:
+            # Mevcut seçili konulara göre havuzu yeniden kur
+            self.kullanilan_sorular = {konu_adi: set() for konu_adi in self.secilen_konular.keys()}
+            self.logger.debug("Kullanılan sorular havuzu sıfırlandı")
+        except Exception as e:
+            self.logger.error(f"Havuz sıfırlama hatası: {e}")
+
+    def _open_dropdown_safely(self, cb):
+        try:
+            if cb and cb.winfo_exists() and hasattr(cb, "_open_dropdown_menu"):
+                cb._open_dropdown_menu()
+        except Exception:
+            pass
+
+    def _bind_combobox_open(self, cb):
+        try:
+            # Tüm widget alanına tıklamayı bağla (ikon + input)
+            cb.bind("<Button-1>", lambda e: self._open_dropdown_safely(cb))
+            # Odak alınca da açılmasını istersen (opsiyonel):
+            # cb.bind("<FocusIn>", lambda e: self._open_dropdown_safely(cb))
+        except Exception:
+            pass
+
+    def _unbind_combobox_open_in(self, container):
+        """Verilen container içindeki tüm CTkComboBox'lardan güvenli tıklama bağını kaldır."""
+        try:
+            for child in container.winfo_children():
+                try:
+                    if isinstance(child, ctk.CTkComboBox):
+                        child.unbind("<Button-1>")
+                    # İç içe frame'leri de tara
+                    if hasattr(child, "winfo_children"):
+                        self._unbind_combobox_open_in(child)
+                except Exception:
+                    continue
+        except Exception:
+            pass
 
     def setup_ui(self):
         """Ana UI'ı oluştur"""
@@ -214,9 +240,9 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
             dropdown_hover_color="#f7fafc",
             state="readonly"
         )
-        self.soru_tipi_menu._entry.bind("<Button-1>", lambda e: self.soru_tipi_menu._open_dropdown_menu())
         self.soru_tipi_menu.set("Soru tipi seçin...")
         self.soru_tipi_menu.pack(anchor="w", pady=(0, 15), padx=(10, 0)) 
+        self._bind_combobox_open(self.soru_tipi_menu)
 
         # Zorluk Seçimi
         self.zorluk_var = tk.StringVar()
@@ -235,9 +261,9 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
             dropdown_hover_color="#f7fafc",
             state="readonly"
         )
-        self.zorluk_menu._entry.bind("<Button-1>", lambda e: self.zorluk_menu._open_dropdown_menu())
         self.zorluk_menu.set("Zorluk seviyesi seçin...")
         self.zorluk_menu.pack(anchor="w", pady=(0, 15), padx=(10, 0))
+        self._bind_combobox_open(self.zorluk_menu)
 
         # Cevap Anahtarı Seçimi
         self.cevap_anahtari_var = tk.StringVar()
@@ -256,9 +282,18 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
             dropdown_hover_color="#f7fafc",
             state="readonly"
         )
-        self.cevap_anahtari_menu._entry.bind("<Button-1>", lambda e: self.cevap_anahtari_menu._open_dropdown_menu())
         self.cevap_anahtari_menu.set("Cevap anahtarı eklensin mi?")
         self.cevap_anahtari_menu.pack(anchor="w", pady=(0, 15), padx=(10, 0))
+        self._bind_combobox_open(self.cevap_anahtari_menu)
+
+        # Küçük ipucu etiketi (sayfa başı limit bilgisi)
+        hint_label = ctk.CTkLabel(
+            left_input_frame,
+            text="Bilgi: Program Test şablonunda sayfa başına maks 10 soru,\nYazılı şablonunda ise maks 2 soru yerleştirecektir.",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color="#495057"
+        )
+        hint_label.pack(side="left", pady=(2, 8), padx=(10, 0))
 
         # Toplam soru sayısı
         # self.total_frame = ctk.CTkFrame(
@@ -372,9 +407,26 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
                 )
                 btn.pack(side="right", padx=(0, 4))
 
+        # Toplam seçili soru sayacı (sağ panelde alt kısımda)
+        self.total_label = ctk.CTkLabel(
+            right_distribution_frame,
+            text="Toplam Seçilen Soru: 0",
+            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+            text_color="#2b6cb0"
+        )
+        self.total_label.pack(anchor="e", pady=(8, 4), padx=(0, 16))
+
         # Entry değişikliklerini izle
-        # for var in self.konu_entry_vars.values():
-        #     var.trace('w', self.update_total)
+        for var in self.konu_entry_vars.values():
+            try:
+                var.trace_add('write', lambda *_: self.update_total())
+            except Exception:
+                try:
+                    var.trace('w', lambda *_: self.update_total())
+                except Exception:
+                    pass
+        # İlk değer için güncelle
+        self.update_total()
 
         # Devam Et butonu
         devam_btn = ctk.CTkButton(
@@ -478,20 +530,19 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
             self.show_error(hata_mesaji)
             return
 
-        # Yazılı için bilgilendirme
+        # Sayfa bilgilendirmesi (yazılı, oturum bazlı). Diyalog kapandıktan sonra devam et.
         if soru_tipi.lower() == "yazili" and toplam_soru > 2:
-            self.logger.info("Yazılı için çoklu sayfa bilgilendirmesi gösteriliyor")
-            self.show_multipage_info(toplam_soru)
+            global YAZILI_INFO_SHOWN
+            if not YAZILI_INFO_SHOWN:
+                self.logger.info("Yazılı için çoklu sayfa bilgilendirmesi (oturum bazlı) gösteriliyor")
+                YAZILI_INFO_SHOWN = True
+                # Mevcut ekrandaki combobox tıklama bağlarını kaldırarak fokus hatasını önle
+                self._unbind_combobox_open_in(self.form_frame)
+                self.show_multipage_info(toplam_soru, on_close=lambda: self._proceed_to_preview(soru_tipi, zorluk))
+                return
 
-        # Rastgele görselleri seç
-        self.secilen_gorseller = self.secili_gorselleri_al(soru_tipi, zorluk)
-
-        if self.secilen_gorseller:
-            self.logger.info(f"{len(self.secilen_gorseller)} görsel seçildi, önizleme ekranı açılıyor")
-            self.gorsel_onizleme_alani_olustur()
-        else:
-            self.logger.error("Hiç görsel seçilemedi")
-            self.show_error("Seçilen konularda görsel bulunamadı!")
+        # Bilgilendirme gerekmiyorsa doğrudan devam
+        self._proceed_to_preview(soru_tipi, zorluk)
 
     def get_available_questions(self, konu_adi, soru_tipi, zorluk):
         """Bir konu için mevcut soru sayısını döndür"""
@@ -513,6 +564,10 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
     def secili_gorselleri_al(self, soru_tipi, zorluk):
         """Her konudan belirtilen sayıda rastgele görsel seç - Kullanılan takibi ile"""
         try:
+            # *** YENİ: Her yeni PDF oluşturma işleminde havuzu sıfırla ***
+            self._havuzu_sifirla()
+            self.logger.info("Yeni PDF oluşturma başlıyor - Havuz sıfırlandı")
+            
             tum_gorseller = []
 
             for konu_adi, sayi in self.konu_soru_dagilimi.items():
@@ -553,6 +608,8 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
         self.logger.info("Önizleme alanı oluşturuluyor")
 
         # Form içeriğini temizle
+        # Önce combobox tıklama bağlarını kaldır (yok olmuş widget referansları hatasını önler)
+        self._unbind_combobox_open_in(self.form_frame)
         for widget in self.form_frame.winfo_children():
             widget.destroy()
 
@@ -1191,6 +1248,10 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
         try:
             self.logger.info("Geri dön butonuna tıklandı")
             
+            # *** YENİ: Geri dönüşte havuzu sıfırla (yeni seçim için) ***
+            self._havuzu_sifirla()
+            self.logger.info("Geri dönüş - Havuz sıfırlandı")
+            
             # Form içeriğini temizle ve seçim widget'larını yeniden oluştur
             for widget in self.form_frame.winfo_children():
                 widget.destroy()
@@ -1269,6 +1330,20 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
             if cevap_anahtari_isteniyor and cevaplar:
                 pdf.cevap_anahtari_ekle(cevaplar)
                 self.logger.debug(f"{len(cevaplar)} cevap anahtarı eklendi")
+                # '?' oranı için kullanıcıya bilgi ver (akışı kesmeden)
+                try:
+                    bilinmeyen = sum(1 for c in cevaplar if str(c).strip() == "?")
+                    if bilinmeyen > 0:
+                        oran = int(100 * bilinmeyen / max(1, len(cevaplar)))
+                        info = f"Cevap anahtarında {bilinmeyen}/{len(cevaplar)} soru için cevap bulunamadı (%{oran})."
+                        self.logger.warning(info)
+                        # Hafif uyarı diyaloğu
+                        try:
+                            self._show_dialog("Cevap Anahtarı Uyarısı", info, "#ffc107")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
             elif not cevap_anahtari_isteniyor:
                 self.logger.info("Cevap anahtarı kullanıcı tercihi ile eklenmedi")
             
@@ -1485,8 +1560,8 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
         )
         ok_btn.pack(pady=20)
 
-    def show_multipage_info(self, istenen_sayi):
-        """Yazılı çoklu sayfa bilgilendirmesi göster"""
+    def show_multipage_info(self, istenen_sayi, on_close=None):
+        """Yazılı çoklu sayfa bilgilendirmesi göster. on_close: kapatınca çağrılır."""
         import math
         sayfa_sayisi = math.ceil(istenen_sayi / 2)
         
@@ -1499,7 +1574,87 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
         )
     
         # Bilgilendirme penceresi (sadece "Tamam" butonu)
-        self._show_dialog("Yazılı PDF Bilgisi", message, "#17a2b8")
+        try:
+            dialog_window = ctk.CTkToplevel(self.controller)
+            dialog_window.title("Yazılı PDF Bilgisi")
+            dialog_window.geometry("480x320")
+            dialog_window.resizable(False, False)
+            dialog_window.transient(self.controller)
+            dialog_window.grab_set()
+
+            # Ortala
+            try:
+                x = int(self.controller.winfo_x() + self.controller.winfo_width()/2 - 240)
+                y = int(self.controller.winfo_y() + self.controller.winfo_height()/2 - 160)
+                dialog_window.geometry(f"+{x}+{y}")
+            except:
+                pass
+
+            icon_label = ctk.CTkLabel(dialog_window, text="ℹ️", font=ctk.CTkFont(size=48), text_color="#17a2b8")
+            icon_label.pack(pady=(24, 10))
+
+            message_label = ctk.CTkLabel(
+                dialog_window, text=message, font=ctk.CTkFont(size=15, weight="bold"),
+                justify="center", wraplength=420, text_color="#2c3e50"
+            )
+            message_label.pack(padx=20)
+
+            def _close():
+                try:
+                    dialog_window.destroy()
+                finally:
+                    if callable(on_close):
+                        on_close()
+
+            ok_btn = ctk.CTkButton(
+                dialog_window, text="Tamam", width=110, height=38, corner_radius=10,
+                fg_color="#17a2b8", hover_color=self._darken_color("#17a2b8"), command=_close
+            )
+            ok_btn.pack(pady=20)
+        except Exception:
+            # Diyalog oluşturulamazsa yine de devam et
+            if callable(on_close):
+                on_close()
+
+    def _darken_color(self, hex_color):
+        """Rengi koyulaştır"""
+        color_map = {
+             "#27ae60": "#229954",
+             "#e74c3c": "#c0392b",
+             "#dc3545": "#c82333",
+             "#ffc107": "#e0a800",
+             "#17a2b8": "#138496"
+        }
+        return color_map.get(hex_color, hex_color)
+
+    def _proceed_to_preview(self, soru_tipi, zorluk):
+        """Bilgilendirme sonrası güvenle önizleme akışına geç."""
+        try:
+            self.secilen_gorseller = self.secili_gorselleri_al(soru_tipi, zorluk)
+            if self.secilen_gorseller:
+                self.logger.info(f"{len(self.secilen_gorseller)} görsel seçildi, önizleme ekranı açılıyor")
+                self.gorsel_onizleme_alani_olustur()
+            else:
+                self.logger.error("Hiç görsel seçilemedi")
+                self.show_error("Seçilen konularda görsel bulunamadı!")
+        except Exception as e:
+            self.logger.error(f"Önizleme akışında hata: {e}")
+
+    def update_total(self):
+        """Toplam seçilen soru sayısını canlı güncelle"""
+        try:
+            toplam = 0
+            for var in self.konu_entry_vars.values():
+                try:
+                    val = int(var.get())
+                    if val > 0:
+                        toplam += val
+                except Exception:
+                    continue
+            if hasattr(self, 'total_label') and self.total_label.winfo_exists():
+                self.total_label.configure(text=f"Toplam Seçilen Soru: {toplam}")
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     root = ctk.CTk()

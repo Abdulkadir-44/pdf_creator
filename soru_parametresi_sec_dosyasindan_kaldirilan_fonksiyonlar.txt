@@ -409,11 +409,8 @@
     #     except Exception as e:
     #         self.logger.error(f"Toplam güncelleme hatası: {e}")
 
-# def _darken_color(self, hex_color):
-    #     """Rengi koyulaştır"""
-    #     color_map = {
-    #         "#27ae60": "#229954",
-    #         "#e74c3c": "#c0392b",
-    #         "#dc3545": "#c82333"
-    #     }
-    #     return color_map.get(hex_color, hex_color)
+
+
+
+//başlık ekleme butonu eklenecek
+cevap anahtarı - ile okunacak
