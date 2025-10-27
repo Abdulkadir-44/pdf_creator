@@ -280,12 +280,11 @@ class PDFCreator:
     def kaydet(self, dosya_yolu):
         """Düzeltilmiş PDF kaydetme fonksiyonu"""
         try:
-            print(f"🚀 PDF OLUŞTURMA BAŞLIYOR - {self.soru_tipi} tipi")
             logger.info(f"PDF oluşturma başlıyor: Tip={self.soru_tipi}, Dosya={os.path.basename(dosya_yolu)}")
             self.global_soru_sayaci = 0
 
             current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            template_name = "template2.png" if self.soru_tipi.lower() == "yazili" else "template3.png"
+            template_name = "template2.png" if self.soru_tipi.lower() == "yazili" else "template.png"
             template_path = os.path.join(current_dir, "templates", template_name)
 
             if not os.path.exists(template_path):
