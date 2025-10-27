@@ -3,34 +3,27 @@ from tkinter import filedialog
 import os
 import logging
 
-# Logging konfigürasyonu
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
+# Yeni loglama sistemi: Bu modülün kendi logger'ını al.
+# Adı otomatik olarak 'ui.ders_sec_ui' olacaktır.
 logger = logging.getLogger(__name__)
 
-ctk.set_appearance_mode("light")
-ctk.set_default_color_theme("green")
-
+# Görsel sabitler
 BG_COLOR = "#f2f2f2"
 SCROLL_BG = "#e6e6e6"
 BTN_BG = "#4a90e2"
 BTN_FG = "#ffffff"
 
-class UniteSecmePenceresi(ctk.CTkFrame):
+class DersSecmePenceresi(ctk.CTkFrame):
     def __init__(self, parent, controller):
         super().__init__(parent, fg_color=BG_COLOR)
         self.controller = controller
         self.current_buttons = []
         self.ana_klasor_yolu = None  # Ana klasör yolunu saklamak için
-        logger.info("UniteSecmePenceresi başlatılıyor")
+        logger.info("DersSecmePenceresi frame'i başlatılıyor")
         self.setup_ui()
 
     def setup_ui(self):
         """UI elementlerini oluştur"""
-        logger.debug("UI elementleri oluşturuluyor")
         self.btn_font = ctk.CTkFont(family="Segoe UI", size=11, weight="bold")
 
         # Başlık
@@ -96,34 +89,34 @@ class UniteSecmePenceresi(ctk.CTkFrame):
 
     def ana_klasoru_sec(self):
         """Ana klasörü seç ve ders butonlarını göster"""
-        logger.info("Ana klasör seçme işlemi başlatılıyor")
+        logger.info("Ana klasör seçme işlemi başlatıldı.")
         klasor_yolu = filedialog.askdirectory(title="Ana Soru Klasörünü Seçin")
         if klasor_yolu:
             logger.info(f"Klasör seçildi: {klasor_yolu}")
             self.ana_klasor_yolu = klasor_yolu
             self.goster_ders_butonlari(klasor_yolu)
         else:
-            logger.info("Klasör seçme işlemi iptal edildi")
+            logger.info("Klasör seçme işlemi kullanıcı tarafından iptal edildi.")
 
     def goster_ders_butonlari(self, ana_klasor):
         """Ders butonlarını göster"""
-        logger.info(f"Ders butonları gösteriliyor: {ana_klasor}")
+        logger.info(f"Ders butonları '{ana_klasor}' yolu için oluşturuluyor.")
         
         # Scroll frame'i temizle
         for widget in self.scroll_frame.winfo_children():
             widget.destroy()
         self.current_buttons.clear()
-        logger.debug("Scroll frame temizlendi")
+        logger.debug("Scroll frame temizlendi.")
 
         try:
             # Klasörleri al (dersler)
             klasorler = [d for d in os.listdir(ana_klasor) 
-                        if os.path.isdir(os.path.join(ana_klasor, d))]
+                         if os.path.isdir(os.path.join(ana_klasor, d))]
             
             logger.info(f"Bulunan ders sayısı: {len(klasorler)}")
             
             if not klasorler:
-                logger.warning(f"Seçilen klasörde alt klasör bulunamadı: {ana_klasor}")
+                logger.warning(f"Seçilen klasörde alt klasör (ders) bulunamadı: {ana_klasor}")
                 self.show_empty_folder_message()
                 return
 
@@ -143,22 +136,22 @@ class UniteSecmePenceresi(ctk.CTkFrame):
                 )
                 self.current_buttons.append(buton)
 
-            logger.info(f"Toplam {len(self.current_buttons)} buton oluşturuldu")
+            logger.info(f"Toplam {len(self.current_buttons)} ders butonu oluşturuldu.")
             self.relayout_buttons()
 
-        except PermissionError as e:
-            logger.error(f"Klasöre erişim izni hatası: {ana_klasor} - {str(e)}")
-            self.show_error_message(f"Klasöre erişim izni yok: {str(e)}")
-        except FileNotFoundError as e:
-            logger.error(f"Klasör bulunamadı: {ana_klasor} - {str(e)}")
-            self.show_error_message(f"Klasör bulunamadı: {str(e)}")
-        except Exception as e:
-            logger.error(f"Ders butonları gösterme hatası: {ana_klasor} - {str(e)}")
-            self.show_error_message(f"Hata: {str(e)}")
+        except PermissionError:
+            logger.error(f"Klasöre erişim izni hatası: {ana_klasor}", exc_info=True)
+            self.show_error_message(f"Klasöre erişim izni yok:\n{ana_klasor}")
+        except FileNotFoundError:
+            logger.error(f"Klasör bulunamadı: {ana_klasor}", exc_info=True)
+            self.show_error_message(f"Klasör bulunamadı:\n{ana_klasor}")
+        except Exception:
+            logger.error("Ders butonları gösterilirken beklenmedik bir hata oluştu.", exc_info=True)
+            self.show_error_message("Beklenmedik bir hata oluştu.")
 
     def show_empty_folder_message(self):
         """Boş klasör mesajı göster"""
-        logger.info("Boş klasör mesajı gösteriliyor")
+        logger.info("Kullanıcıya boş klasör mesajı gösteriliyor.")
         message_label = ctk.CTkLabel(
             self.scroll_frame,
             text="🔭 Seçilen klasörde ders klasörü bulunamadı.\n\nLütfen soru klasörlerinizi içeren\nana klasörü seçtiğinizden emin olun.",
@@ -170,7 +163,7 @@ class UniteSecmePenceresi(ctk.CTkFrame):
 
     def show_error_message(self, message):
         """Hata mesajı göster"""
-        logger.warning(f"Hata mesajı gösteriliyor: {message}")
+        logger.warning(f"Kullanıcıya hata mesajı gösteriliyor: {message}")
         error_label = ctk.CTkLabel(
             self.scroll_frame,
             text=f"❌ {message}",
@@ -182,28 +175,29 @@ class UniteSecmePenceresi(ctk.CTkFrame):
 
     def konu_baslik_ekranini_ac(self, ana_klasor, secilen_ders):
         """Konu başlık seçme ekranını aç"""
-        logger.info(f"Konu başlık ekranı açılıyor - Ders: {secilen_ders}")
+        logger.info(f"Konu başlık ekranına geçiliyor - Ders: '{secilen_ders}'")
         ders_klasor_yolu = os.path.join(ana_klasor, secilen_ders)
         self.controller.show_frame("KonuBaslikSecme", 
-                                 ders_klasor_yolu=ders_klasor_yolu,
-                                 ders_adi=secilen_ders)
+                                  ders_klasor_yolu=ders_klasor_yolu,
+                                  ders_adi=secilen_ders)
 
     def ana_menuye_don(self):
         """Ana menüye dön"""
-        logger.info("Ana menüye dönülüyor")
+        logger.info("Ana menüye dönme komutu verildi.")
         self.controller.ana_menuye_don()
 
     def relayout_buttons(self):
-        """Butonları yeniden düzenle"""
+        """Butonları pencere boyutuna göre yeniden düzenle"""
         if not self.current_buttons:
-            logger.debug("Düzenlenecek buton bulunamadı")
+            logger.debug("Yeniden düzenlenecek buton bulunamadı.")
             return
 
-        logger.debug("Butonlar yeniden düzenleniyor")
+        logger.debug("Butonlar yeniden düzenleniyor...")
 
         # Önceki grid ayarlarını temizle
         for widget in self.scroll_frame.winfo_children():
-            widget.grid_forget()
+            if isinstance(widget, ctk.CTkButton):
+                 widget.grid_forget()
 
         # Buton düzenleme parametreleri
         padding = 15
@@ -215,15 +209,15 @@ class UniteSecmePenceresi(ctk.CTkFrame):
             frame_width = self.scroll_frame.winfo_width()
             if frame_width <= 1:  # Henüz render olmamışsa
                 frame_width = 800
-                logger.debug("Frame genişliği henüz hesaplanmamış, varsayılan değer kullanılıyor: 800px")
-        except Exception as e:
+                logger.debug(f"Frame genişliği render olmamış, varsayılan değer kullanılıyor: {frame_width}px")
+        except Exception:
             frame_width = 800
-            logger.warning(f"Frame genişliği hesaplanırken hata: {str(e)}, varsayılan değer kullanılıyor: 800px")
+            logger.warning("Frame genişliği hesaplanırken hata, varsayılan değer kullanılıyor: 800px", exc_info=True)
 
         usable_width = frame_width - 2 * margin
         max_columns = max(1, usable_width // (btn_width_px + padding))
         
-        logger.debug(f"Frame genişliği: {frame_width}px, Kullanılabilir genişlik: {usable_width}px, Kolon sayısı: {max_columns}")
+        logger.debug(f"Frame Genişliği: {frame_width}px, Kullanılabilir Genişlik: {usable_width}px, Sütun Sayısı: {max_columns}")
 
         # Grid konfigürasyonu
         for col in range(max_columns):
@@ -235,12 +229,4 @@ class UniteSecmePenceresi(ctk.CTkFrame):
             col = idx % max_columns
             btn.grid(row=row, column=col, padx=padding//2, pady=10, sticky="ew")
 
-        # Layout'u güncelle
-        self.scroll_frame.update_idletasks()
-        logger.info(f"Buton düzenleme tamamlandı - {len(self.current_buttons)} buton, {max_columns} kolon")
-
-if __name__ == "__main__":
-    root = ctk.CTk()
-    root.state('zoomed')
-    app = UniteSecmePenceresi(root, None)
-    root.mainloop()
+        logger.info(f"Buton düzenlemesi tamamlandı - {len(self.current_buttons)} buton, {max_columns} sütun ile yerleştirildi.")

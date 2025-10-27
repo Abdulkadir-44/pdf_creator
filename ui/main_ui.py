@@ -1,7 +1,12 @@
 import customtkinter as ctk
-from ui.unite_sec_ui import UniteSecmePenceresi
+from ui.ders_sec_ui import DersSecmePenceresi
 from ui.konu_baslik_sec_ui import KonuBaslikSecmePenceresi
-from ui.konu_sec_ui import KonuSecmePenceresi 
+from ui.soru_parametresi_sec_ui import SoruParametresiSecmePenceresi
+from ui.resim_yonetimi_ui import ResimYonetimiPenceresi
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("green")
@@ -13,6 +18,7 @@ BTN_FG = "#ffffff"
 class AnaPencere(ctk.CTk):
     def __init__(self):
         super().__init__()
+        logger.info("AnaPencere (controller) başlatılıyor.")
 
         self.title("Soru Otomasyon Sistemi")
         self.configure(bg=BG_COLOR)
@@ -36,22 +42,29 @@ class AnaPencere(ctk.CTk):
         self.after(50, lambda: self.state('zoomed'))
 
     def init_frames(self):
+        logger.debug("Sabit frame'ler oluşturuluyor: AnaMenu, UniteSecme")
         """Sabit frame'leri başlangıçta oluştur"""
         # Ana Menü
         self.frames["AnaMenu"] = AnaMenu(self.container, self)
         self.frames["AnaMenu"].grid(row=0, column=0, sticky="nsew")
         
         # Ders Seçme (eski UniteSecme)
-        self.frames["UniteSecme"] = UniteSecmePenceresi(self.container, self)
+        self.frames["UniteSecme"] = DersSecmePenceresi(self.container, self)
         self.frames["UniteSecme"].grid(row=0, column=0, sticky="nsew")
+        
+        # Resim Yönetimi
+        self.frames["ResimYonetimi"] = ResimYonetimiPenceresi(self.container, self)
+        self.frames["ResimYonetimi"].grid(row=0, column=0, sticky="nsew")
 
     def show_frame(self, frame_name, **kwargs):
         """Frame'i göster"""
+        logger.info(f"'{frame_name}' sayfası gösterilmek üzere çağrıldı.")
         
         # Dinamik frame oluşturma
         if frame_name == "KonuBaslikSecme":
             ders_klasor_yolu = kwargs.get('ders_klasor_yolu')
             ders_adi = kwargs.get('ders_adi')
+            logger.debug(f"KonuBaslikSecme sayfası '{ders_adi}' dersi için dinamik olarak oluşturuluyor/güncelleniyor.")
             if ders_klasor_yolu and ders_adi:
                 # Eğer frame varsa güncelle, yoksa oluştur
                 if "KonuBaslikSecme" in self.frames:
@@ -65,12 +78,13 @@ class AnaPencere(ctk.CTk):
         elif frame_name == "SoruParametre":
             ders_adi = kwargs.get('ders_adi')
             secilen_konular = kwargs.get('secilen_konular')
+            logger.debug(f"SoruParametre sayfası '{ders_adi}' dersinin  konusu için oluşturuluyor.")
             if ders_adi and secilen_konular:
                 # Eğer frame varsa güncelle, yoksa oluştur
                 if "SoruParametre" in self.frames:
                     self.frames["SoruParametre"].destroy()
                 
-                self.frames["SoruParametre"] = KonuSecmePenceresi(
+                self.frames["SoruParametre"] = SoruParametresiSecmePenceresi(
                     self.container, self, None, ders_adi, secilen_konular
                 )
                 self.frames["SoruParametre"].grid(row=0, column=0, sticky="nsew")
@@ -81,11 +95,13 @@ class AnaPencere(ctk.CTk):
 
     def ana_menuye_don(self):
         """Ana menüye dön"""
+        logger.info("Ana menüye dönülüyor.")
         self.show_frame("AnaMenu")
 
 class AnaMenu(ctk.CTkFrame):
     def __init__(self, parent, controller):
         super().__init__(parent, fg_color=BG_COLOR)
+        logger.info("AnaMenu frame'i oluşturuldu.")
         
         self.controller = controller
         self.setup_ui()
@@ -136,31 +152,14 @@ class AnaMenu(ctk.CTkFrame):
 
     def soru_sec_ekranini_ac(self):
         """Ders seçme ekranını göster"""
+        logger.info("'Soru Seç ve PDF Oluştur' butonuna tıklandı.")
         self.controller.show_frame("UniteSecme")
 
     def klasor_yonetimi_ekranini_ac(self):
-        """Klasör yönetimi ekranını göster (gelecekte implement edilecek)"""
-        # Geçici mesaj göster
-        temp_window = ctk.CTkToplevel(self.controller)
-        temp_window.title("Bilgi")
-        temp_window.geometry("300x150")
-        temp_window.resizable(False, False)
-        
-        label = ctk.CTkLabel(
-            temp_window,
-            text="Klasör Yönetimi\n(Yapım Aşamasında)",
-            font=ctk.CTkFont(family="Segoe UI", size=14),
-            text_color="black"
-        )
-        label.pack(pady=40)
-        
-        ok_btn = ctk.CTkButton(
-            temp_window,
-            text="Tamam",
-            command=temp_window.destroy
-        )
-        ok_btn.pack(pady=10)
+        """Resim yönetimi ekranını göster"""
+        logger.info("'Klasör Yönetimi' butonuna tıklandı.")
+        self.controller.show_frame("ResimYonetimi")
 
-if __name__ == "__main__":
-    app = AnaPencere()
-    app.mainloop()
+# if __name__ == "__main__":
+#     app = AnaPencere()
+#     app.mainloop()
