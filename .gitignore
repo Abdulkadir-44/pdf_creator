@@ -1,0 +1,25 @@
+touch .gitignore
+```
+
+**Varsa düzenle:**
+
+`.gitignore` dosyasına şunları ekle:
+```
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
