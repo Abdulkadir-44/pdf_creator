@@ -1,0 +1,34 @@
+2025-11-01 16:17:21 | root                 | setup_logging             | INFO     | Loglama sistemi başarıyla kuruldu.
+2025-11-01 16:17:21 | __main__             | <module>                  | INFO     | ========================================
+2025-11-01 16:17:21 | __main__             | <module>                  | INFO     | Soru Otomasyon Sistemi Uygulaması Başlatılıyor...
+2025-11-01 16:17:21 | __main__             | <module>                  | INFO     | ========================================
+2025-11-01 16:17:21 | ui.main_ui           | __init__                  | INFO     | AnaPencere (controller) başlatılıyor.
+2025-11-01 16:17:21 | ui.main_ui           | __init__                  | INFO     | AnaMenu frame'i oluşturuldu.
+2025-11-01 16:17:21 | ui.ders_sec_ui       | __init__                  | INFO     | DersSecmePenceresi frame'i başlatılıyor
+2025-11-01 16:17:22 | ui.ders_sec_ui       | setup_ui                  | INFO     | UI kurulumu tamamlandı
+2025-11-01 16:17:22 | ui.resim_yonetimi_ui | __init__                  | INFO     | ResimYonetimiPenceresi frame'i başlatılıyor
+2025-11-01 16:17:22 | ui.resim_yonetimi_ui | setup_ui                  | INFO     | Resim yönetimi UI kurulumu tamamlandı
+2025-11-01 16:17:22 | ui.main_ui           | show_frame                | INFO     | 'AnaMenu' sayfası gösterilmek üzere çağrıldı.
+2025-11-01 16:17:23 | ui.main_ui           | soru_sec_ekranini_ac      | INFO     | 'Soru Seç ve PDF Oluştur' butonuna tıklandı.
+2025-11-01 16:17:23 | ui.main_ui           | show_frame                | INFO     | 'UniteSecme' sayfası gösterilmek üzere çağrıldı.
+2025-11-01 16:17:24 | ui.ders_sec_ui       | ana_klasoru_sec           | INFO     | Ana klasör seçme işlemi başlatıldı.
+2025-11-01 16:17:27 | ui.ders_sec_ui       | ana_klasoru_sec           | INFO     | Klasör seçildi: C:/Users/abdul/Desktop/Soru-Havuzu
+2025-11-01 16:17:27 | ui.ders_sec_ui       | goster_ders_butonlari     | INFO     | Ders butonları 'C:/Users/abdul/Desktop/Soru-Havuzu' yolu için oluşturuluyor.
+2025-11-01 16:17:27 | ui.ders_sec_ui       | goster_ders_butonlari     | INFO     | Bulunan ders sayısı: 6
+2025-11-01 16:17:27 | ui.ders_sec_ui       | goster_ders_butonlari     | INFO     | Toplam 6 ders butonu oluşturuldu.
+2025-11-01 16:17:27 | ui.ders_sec_ui       | relayout_buttons          | INFO     | Buton düzenlemesi tamamlandı - 6 buton, 4 sütun ile yerleştirildi.
+2025-11-01 16:17:27 | ui.ders_sec_ui       | konu_baslik_ekranini_ac   | INFO     | Konu başlık ekranına geçiliyor - Ders: 'Biyoloji'
+2025-11-01 16:17:27 | ui.main_ui           | show_frame                | INFO     | 'KonuBaslikSecme' sayfası gösterilmek üzere çağrıldı.
+2025-11-01 16:17:27 | ui.konu_baslik_sec_ui | __init__                  | INFO     | KonuBaslikSecmePenceresi başlatıldı - Ders: Biyoloji
+2025-11-01 16:17:27 | ui.konu_baslik_sec_ui | get_konu_listesi          | INFO     | 3 konu başlığı bulundu
+2025-11-01 16:17:32 | ui.konu_baslik_sec_ui | devam_et                  | INFO     | 2 konu seçildi, Soru Parametre ekranına geçiliyor.
+2025-11-01 16:17:32 | ui.main_ui           | show_frame                | INFO     | 'SoruParametre' sayfası gösterilmek üzere çağrıldı.
+2025-11-01 16:17:32 | ui.soru_parametresi_sec_ui | __init__                  | INFO     | SoruParametresiSecmePenceresi başlatıldı - Ders: Biyoloji, Konu sayısı: 2
+2025-11-01 16:17:32 | ui.soru_parametresi_sec_ui | setup_ui                  | INFO     | UI kurulumu tamamlandı
+2025-11-01 16:17:41 | ui.soru_parametresi_sec_ui | devam_et                  | INFO     | Devam et butonuna tıklandı
+2025-11-01 16:17:41 | ui.soru_parametresi_sec_ui | devam_et                  | INFO     | Toplam 20 soru seçildi
+2025-11-01 16:17:41 | ui.soru_parametresi_sec_ui | secili_gorselleri_al      | INFO     | Yeni PDF oluşturma başlıyor - Havuz sıfırlandı
+2025-11-01 16:17:41 | ui.soru_parametresi_sec_ui | secili_gorselleri_al      | INFO     | Toplam 20 görsel seçildi ve karıştırıldı
+2025-11-01 16:17:41 | ui.soru_parametresi_sec_ui | _proceed_to_preview       | INFO     | 20 görsel seçildi, önizleme ekranı açılıyor
+2025-11-01 16:17:41 | ui.soru_parametresi_sec_ui | gorsel_onizleme_alani_olustur | INFO     | Önizleme alanı oluşturuluyor
+2025-11-01 16:17:55 | __main__             | <module>                  | INFO     | Uygulama Kapatıldı.
