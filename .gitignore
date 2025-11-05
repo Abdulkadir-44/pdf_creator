@@ -1,0 +1,10 @@
+# Log dosyaları
+# 'logs' klasörü altındaki tüm .log uzantılı dosyaları yok say.
+logs/*.log
+# Eğer 'general.log' gibi uzantısız veya farklı uzantılı logların da varsa,
+# 'logs/*.log' yerine 'logs/' kullanman daha iyi olur.
+
+# Python cache klasörleri
+# Proje içindeki herhangi bir yerdeki '__pycache__' klasörlerini
+# ve içindeki tüm dosyaları yok say.
+__pycache__/
