@@ -60,6 +60,7 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
             'light': '#ffffff',
             'bg': '#f0f2f5'
         }
+        self.sayfa_haritasi = []
         self.secilen_konular = secilen_konular or {}  # {konu_adi: klasor_yolu}
         self.secilen_gorseller = []
         self.konu_soru_dagilimi = {}  # Her konudan kaç soru seçileceği
@@ -849,13 +850,18 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
         self._last_controls_container = controls_container
     
     def display_images_new(self, pdf_container, controls_container):
-        """Yeni tasarımla görselleri göster"""
-        self.logger.debug("Yeni tasarımla görsel display başlatılıyor")
+        """
+        Yeni tasarımla görselleri göster (ARTIK SÜTUNLU HARİTADAN OKUYOR)
+        Sıralı numaralandırma için 'global_offset' hesaplar.
+        """
+        self.logger.debug("Yeni tasarımla görsel display başlatılıyor (Sütunlu Harita + Sıralı No Modu)")
         
         if controls_container is None:
-            # Yalnızca PDF panelini yeniden oluştur (sağ tarafı yenileme)
-            controls_container = self._last_controls_container
-
+            if hasattr(self, '_last_controls_container'):
+                controls_container = self._last_controls_container
+            else:
+                self.logger.error("Kontrol paneli referansı (controls_container) bulunamadı!")
+                return
 
         # Container'ları temizle
         for widget in pdf_container.winfo_children():
@@ -863,120 +869,258 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
         for widget in controls_container.winfo_children():
             widget.destroy()
 
-        # Soru tipine göre sayfa başı soru sayısı
-        sorular_per_sayfa = self._get_sorular_per_sayfa()
-        toplam_sayfa = math.ceil(len(self.secilen_gorseller) / sorular_per_sayfa)
+        # --- YENİ PLANLANMIŞ MATEMATİK ---
+        if not self.sayfa_haritasi:
+            self.logger.warning("display_images_new: Gösterilecek sayfa haritası bulunamadı!")
+            self.sayfa_haritasi = [ [ [], [] ] ] # Boş bir sayfa (sol ve sağ sütun boş)
+            
+        toplam_sayfa = len(self.sayfa_haritasi)
+        
+        if not hasattr(self, 'current_page') or self.current_page >= toplam_sayfa:
+            self.current_page = max(0, toplam_sayfa - 1)
+        
+        # --- YENİ SIRALI NUMARALANDIRMA İÇİN OFFSET HESAPLAMA ---
+        global_offset = 0
+        for i in range(self.current_page):
+            # Önceki sayfadaki tüm sütunlardaki soruları topla
+            onceki_sayfa_sutunlari = self.sayfa_haritasi[i]
+            global_offset += sum(len(sutun) for sutun in onceki_sayfa_sutunlari)
+        
+        self.logger.info(f"Sayfa {self.current_page + 1} için global_offset: {global_offset}")
 
-        if not hasattr(self, 'current_page'):
-            self.current_page = 0
-
-        # *** PDF başlığını kaldır ***
-        # pdf_title = ctk.CTkLabel(...) # Bu kısmı sil
-
-        # Sayfa navigasyon - daha kompakt, üst köşede
+        # Sayfa navigasyon
         if toplam_sayfa > 1:
             nav_frame = ctk.CTkFrame(pdf_container, fg_color="#ffffff", corner_radius=6, height=35)
-            nav_frame.pack(anchor="ne", padx=10, pady=5)  # Sağ üst köşe
+            nav_frame.pack(anchor="ne", padx=10, pady=5)
             nav_frame.pack_propagate(False)
-
-            # Önceki sayfa butonu
+            
             if self.current_page > 0:
                 prev_btn = ctk.CTkButton(
-                    nav_frame,
-                    text="◀",
+                    nav_frame, text="◀",
                     command=lambda: self.change_page_new(pdf_container, controls_container, -1),
-                    width=30, height=25,
-                    font=ctk.CTkFont(size=10, weight="bold"),
-                    fg_color="#007bff",
-                    hover_color="#0056b3"
+                    width=30, height=25, font=ctk.CTkFont(size=10, weight="bold"),
+                    fg_color="#007bff", hover_color="#0056b3"
                 )
                 prev_btn.pack(side="left", padx=2, pady=5)
-
-            # Sayfa bilgisi
+                
             page_info = ctk.CTkLabel(
-                nav_frame,
-                text=f"{self.current_page + 1}/{toplam_sayfa}",
-                font=ctk.CTkFont(size=11, weight="bold"),
-                text_color="#495057"
+                nav_frame, text=f"{self.current_page + 1}/{toplam_sayfa}",
+                font=ctk.CTkFont(size=11, weight="bold"), text_color="#495057"
             )
             page_info.pack(side="left", padx=8, pady=5)
-
-            # Sonraki sayfa butonu
+            
             if self.current_page < toplam_sayfa - 1:
                 next_btn = ctk.CTkButton(
-                    nav_frame,
-                    text="▶",
+                    nav_frame, text="▶",
                     command=lambda: self.change_page_new(pdf_container, controls_container, 1),
-                    width=30, height=25,
-                    font=ctk.CTkFont(size=10, weight="bold"),
-                    fg_color="#007bff",
-                    hover_color="#0056b3"
+                    width=30, height=25, font=ctk.CTkFont(size=10, weight="bold"),
+                    fg_color="#007bff", hover_color="#0056b3"
                 )
                 next_btn.pack(side="left", padx=2, pady=5)
 
-        # PDF önizleme alanı - Daha büyük alan
+
+        # PDF önizleme alanı
         preview_frame = ctk.CTkScrollableFrame(
             pdf_container, 
             fg_color="#e9ecef", 
             corner_radius=8
         )
-        preview_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))  # Üst padding'i 0 yap
+        preview_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
 
-        # Mevcut sayfa için görselleri al
-        start_idx = self.current_page * sorular_per_sayfa
-        end_idx = min(start_idx + sorular_per_sayfa, len(self.secilen_gorseller))
-        sayfa_gorselleri = self.secilen_gorseller[start_idx:end_idx]
-
-        self.logger.debug(f"Sayfa {self.current_page + 1}: {start_idx}-{end_idx} arası görseller")
+        # --- YENİ GÖRSEL ALMA KISMI (SÜTUNLU HARİTADAN) ---
+        bu_sayfanin_sutunlari = self.sayfa_haritasi[self.current_page]
 
         # PDF sayfası önizlemesi oluştur
-        pdf_preview = self.create_page_preview(sayfa_gorselleri, start_idx)
+        pdf_preview = self.create_page_preview(bu_sayfanin_sutunlari, global_offset)
 
         if pdf_preview:
-            # PDF görselini göster
             pdf_label = tk.Label(
                 preview_frame,
                 image=pdf_preview,
                 bg="#e9ecef"
             )
             pdf_label.image = pdf_preview
-            pdf_label.pack(expand=True, pady=5)  # Padding'i azalt
+            pdf_label.pack(expand=True, pady=5)
         else:
-            # Hata durumunda bilgi göster
+            error_text = "PDF önizlemesi oluşturulamadı"
+            # Sütunlardaki toplam soru sayısına bak
+            total_questions_on_page = sum(len(col) for col in bu_sayfanin_sutunlari)
+            if total_questions_on_page == 0:
+                error_text = "Bu sayfada soru yok."
             error_label = ctk.CTkLabel(
                 preview_frame,
-                text="PDF önizlemesi oluşturulamadı",
+                text=error_text,
                 font=ctk.CTkFont(size=14),
                 text_color="#dc3545"
             )
             error_label.pack(expand=True, pady=50)
 
         # Sağ taraf kontroller
-        self.create_controls_panel(controls_container, sayfa_gorselleri, start_idx, pdf_container)
+        self.create_controls_panel(controls_container, bu_sayfanin_sutunlari, pdf_container, global_offset)
+        
+    def _replan_and_refresh_ui(self):
+        """
+        'self.secilen_gorseller' listesi değiştiğinde (sil/güncelle) çağrılır.
+        Tüm 'sayfa_haritasi'nı (SÜTUNLU olarak) yeniden hesaplar ve UI'ı komple yeniler.
+        """
+        try:
+            self.logger.info("'self.secilen_gorseller' değişti, plan yeniden hesaplanıyor...")
+            
+            # 1. YENİDEN PLANLA (SÜTUNLU BEYNİ ÇAĞIR)
+            pdf_planner = PDFCreator()
+            pdf_planner.gorsel_listesi = self.secilen_gorseller # Güncel listeyi ver
+            
+            soru_tipi = self.soru_tipi_var.get().lower()
+            
+            if soru_tipi == "test":
+                # 'planla_test_duzeni' artık SÜTUNLU harita üretiyor
+                self.sayfa_haritasi = pdf_planner.planla_test_duzeni() 
+            else:
+                # Yazılı için basit planlama (SÜTUNLU formata uydur)
+                soru_listesi = [
+                    {'index': i, 'path': path, 'total_height': 500, 'final_size': (500, 400)} # Tahmini boyut
+                    for i, path in enumerate(self.secilen_gorseller)
+                ]
+                # Yazılı 1 sütunludur, bu yüzden [ [Sayfa1_Sutun1], [Boş_Sutun2] ] formatına getir
+                sayfa_listesi = []
+                for i in range(0, len(soru_listesi), 2): # Sayfa başına 2 soru
+                    sayfa_sorulari = soru_listesi[i:i+2]
+                    sayfa_listesi.append([ sayfa_sorulari, [] ]) # [ [Soru1, Soru2], [] ]
+                self.sayfa_haritasi = sayfa_listesi
+
+            # 2. Sayfa taşmasını engelle
+            toplam_sayfa = len(self.sayfa_haritasi)
+            if not self.sayfa_haritasi: # Eğer son soru da silindiyse
+                self.sayfa_haritasi = [ [ [], [] ] ] # Boş bir sayfa (sol ve sağ sütun boş)
+                toplam_sayfa = 1
+            
+            if self.current_page >= toplam_sayfa:
+                self.current_page = max(0, toplam_sayfa - 1)
+            
+            # 3. UI'ı (Sol+Sağ Panel) Yenile
+            if hasattr(self, '_last_pdf_container') and self._last_pdf_container.winfo_exists():
+                self.display_images_new(self._last_pdf_container, self._last_controls_container)
+                self.logger.info("Plan ve UI başarıyla yenilendi.")
+            else:
+                self.logger.warning("_replan_and_refresh_ui: UI referansları bulunamadı, yenilenemedi.")
+        
+        except Exception as e:
+            self.logger.error(f"Yeniden planlama ve UI yenileme hatası: {e}", exc_info=True)
+            
+    def refresh_pdf_preview_only(self, pdf_container):
+        """SADECE sol PDF önizleme panelini yeniler (SÜTUNLU HARİTADAN OKUR + OFFSET HESAPLAR)"""
+        try:
+            # Sadece sol paneli temizle
+            for widget in pdf_container.winfo_children():
+                widget.destroy()
+
+            # --- YENİ PLANLANMIŞ MATEMATİK ---
+            if not self.sayfa_haritasi:
+                self.logger.warning("refresh_pdf_preview_only: Harita boş.")
+                self.sayfa_haritasi = [ [ [], [] ] ] # Boş bir sayfa (sol ve sağ sütun boş)
+            
+            toplam_sayfa = len(self.sayfa_haritasi)
+
+            if not hasattr(self, 'current_page') or self.current_page >= toplam_sayfa:
+                self.current_page = max(0, toplam_sayfa - 1)
+                
+            # --- YENİ SIRALI NUMARALANDIRMA İÇİN OFFSET HESAPLAMA ---
+            global_offset = 0
+            for i in range(self.current_page):
+                onceki_sayfa_sutunlari = self.sayfa_haritasi[i]
+                global_offset += sum(len(sutun) for sutun in onceki_sayfa_sutunlari)
+            
+            # Sayfa navigasyon (varsa)
+            if toplam_sayfa > 1:
+                nav_frame = ctk.CTkFrame(pdf_container, fg_color="#ffffff", corner_radius=6, height=35)
+                nav_frame.pack(anchor="ne", padx=10, pady=5)
+                nav_frame.pack_propagate(False)
+
+                if self.current_page > 0:
+                    prev_btn = ctk.CTkButton(
+                        nav_frame, text="◀",
+                        command=lambda: self.change_page_new(self._last_pdf_container, self._last_controls_container, -1),
+                        width=30, height=25, font=ctk.CTkFont(size=10, weight="bold"),
+                        fg_color="#007bff", hover_color="#0056b3"
+                    )
+                    prev_btn.pack(side="left", padx=2, pady=5)
+
+                page_info = ctk.CTkLabel(
+                    nav_frame, text=f"{self.current_page + 1}/{toplam_sayfa}",
+                    font=ctk.CTkFont(size=11, weight="bold"), text_color="#495057"
+                )
+                page_info.pack(side="left", padx=8, pady=5)
+
+                if self.current_page < toplam_sayfa - 1:
+                    next_btn = ctk.CTkButton(
+                        nav_frame, text="▶",
+                        command=lambda: self.change_page_new(self._last_pdf_container, self._last_controls_container, 1),
+                        width=30, height=25, font=ctk.CTkFont(size=10, weight="bold"),
+                        fg_color="#007bff", hover_color="#0056b3"
+                    )
+                    next_btn.pack(side="left", padx=2, pady=5)
+
+            # PDF önizleme alanı
+            preview_frame = ctk.CTkScrollableFrame(
+                pdf_container, 
+                fg_color="#e9ecef", 
+                corner_radius=8
+            )
+            preview_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+            # --- YENİ GÖRSEL ALMA KISMI (SÜTUNLU HARİTADAN) ---
+            bu_sayfanin_sutunlari = self.sayfa_haritasi[self.current_page]
+
+            # PDF sayfası önizlemesi oluştur (Offset ile)
+            pdf_preview = self.create_page_preview(bu_sayfanin_sutunlari, global_offset)
+
+            if pdf_preview:
+                pdf_label = tk.Label(
+                    preview_frame,
+                    image=pdf_preview,
+                    bg="#e9ecef"
+                )
+                pdf_label.image = pdf_preview
+                pdf_label.pack(expand=True, pady=5)
+            else:
+                error_text = "PDF önizlemesi oluşturulamadı"
+                total_questions_on_page = sum(len(col) for col in bu_sayfanin_sutunlari)
+                if total_questions_on_page == 0:
+                    error_text = "Bu sayfada soru yok."
+                error_label = ctk.CTkLabel(
+                    preview_frame,
+                    text=error_text,
+                    font=ctk.CTkFont(size=14),
+                    text_color="#dc3545"
+                )
+                error_label.pack(expand=True, pady=50)
+
+        except Exception as e:
+            self.logger.error(f"PDF önizleme yenileme hatası: {e}", exc_info=True)
     
-    def create_controls_panel(self, controls_container, sayfa_gorselleri, start_idx, pdf_container):
+    def create_controls_panel(self, controls_container, bu_sayfanin_sutunlari, pdf_container, global_offset):
+        """
+        Sağ kontrol panelini oluşturur.
+        ARTIK SIRALI NUMARALANDIRMA ('global_offset + i + 1') kullanır.
+        Sütunları düzleştirir.
+        """
         # ÜST: Başlık Girişi (Entry)
         title_bar = ctk.CTkFrame(controls_container, fg_color="transparent")
         title_bar.pack(fill="x", padx=15, pady=(15, 10))
-
-        # NOT: width vermiyoruz; fill="x", expand=True ile tam genişleyecek
+        
         title_entry = ctk.CTkEntry(
             title_bar,
             textvariable=self.baslik_text_var,
-            placeholder_text="Lütfen başlık girin",  # yeni placeholder
+            placeholder_text="Lütfen başlık girin",
             height=36
         )
-        # Tam genişlik için:
         title_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
-
-        # 🔹 Trace (debounce ile sadece sol önizlemeyi yenile)
+        
         if not getattr(self, "_title_trace_id", None):
             self._title_trace_id = self.baslik_text_var.trace_add(
                 "write",
                 lambda *args: self._refresh_preview_debounced(450)
             )
-
-        # 🔹 Entry yok edilirse trace'ı temizle (TclError önleme)
         def _on_destroy(_):
             try:
                 if getattr(self, "_title_trace_id", None):
@@ -984,7 +1128,6 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
                     self._title_trace_id = None
             except Exception:
                 pass
-
         title_entry.bind("<Destroy>", _on_destroy)
 
         # --- Scrollable frame ---
@@ -994,9 +1137,22 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
             corner_radius=8
         )
         scroll_frame.pack(fill="both", expand=True, padx=15, pady=(0, 10))
-
+        
+        # --- YENİ DÜZLEŞTİRME: Sütunları [SoruA, SoruC, SoruB, SoruD] şeklinde tek liste yap
+        # 'planla_test_duzeni' sütunları PDF'e göre sıralar (Sol sütun önce dolar)
+        # Bu yüzden bu sıralama PDF'teki sıralı numara ile %100 eşleşir.
+        bu_sayfanin_soru_bilgileri_duz = []
+        for sutun in bu_sayfanin_sutunlari:
+            bu_sayfanin_soru_bilgileri_duz.extend(sutun)
+        
         # --- Her soru için kontrol kartı ---
-        for i, gorsel_path in enumerate(sayfa_gorselleri):
+        for i, soru_info in enumerate(bu_sayfanin_soru_bilgileri_duz):
+            
+            gorsel_path = soru_info['path']
+            
+            # BUTONLAR İÇİN GÜVENLİ İNDİS (HÂLÂ GEREKLİ)
+            gercek_global_index = soru_info['index'] 
+
             card = ctk.CTkFrame(
                 scroll_frame,
                 fg_color="#ffffff",
@@ -1004,7 +1160,9 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
             )
             card.pack(fill="x", padx=10, pady=(8, 8))
     
-            soru_no = start_idx + i + 1
+            # <<< SIRALI NUMARA ÇÖZÜMÜ >>>
+            soru_no = global_offset + i + 1
+            
             try:
                 cevap = get_answer_for_image(gorsel_path)
             except Exception:
@@ -1019,6 +1177,7 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
             top_frame = ctk.CTkFrame(card, fg_color="transparent")
             top_frame.pack(fill="x", padx=15, pady=(15, 5))
     
+            # 'soru_no' artık sıralı (1, 2, 3...)
             ctk.CTkLabel(
                 top_frame, text=f"Soru {soru_no}",
                 font=ctk.CTkFont(size=14, weight="bold"),
@@ -1038,7 +1197,7 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
             header.grid_columnconfigure(0, weight=0)
             header.grid_columnconfigure(1, weight=1)
             header.grid_columnconfigure(2, weight=0)
-    
+            
             info_icon = ctk.CTkLabel(
                 header, text="🛈",
                 font=ctk.CTkFont(size=18, weight="bold"),
@@ -1051,7 +1210,7 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
                 info_icon.bind("<Leave>", lambda e: info_icon.configure(text="🛈"))
             except Exception:
                 pass
-    
+                
             MAX_LEN = 25
             konu_kisa = konu_adi_tam if len(konu_adi_tam) <= MAX_LEN else (konu_adi_tam[:MAX_LEN] + "…")
             ctk.CTkLabel(
@@ -1059,22 +1218,23 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
                 font=ctk.CTkFont(size=13, weight="bold"),
                 text_color="#1e293b"
             ).grid(row=0, column=1, sticky="w")
-    
+                
             btn_row = ctk.CTkFrame(header, fg_color="transparent")
             btn_row.grid(row=0, column=2, sticky="e")
     
+            # --- BUTONLAR GÜVENLİ İNDİSİ KULLANMAYA DEVAM EDİYOR ---
             ctk.CTkButton(
                 btn_row, text="🔄", width=34, height=30,
                 fg_color="#e2e8f0", text_color="#1f2937",
                 hover_color="#cbd5e1",
-                command=lambda idx=start_idx+i: self.gorseli_guncelle_new(idx, pdf_container)
+                command=lambda idx=gercek_global_index: self.gorseli_guncelle_new(idx)
             ).pack(side="left", padx=(0, 6))
     
             ctk.CTkButton(
                 btn_row, text="🗑", width=34, height=30,
                 fg_color="#fee2e2", text_color="#991b1b",
                 hover_color="#fecaca",
-                command=lambda idx=start_idx+i: self.gorseli_kaldir_new(idx, pdf_container)
+                command=lambda idx=gercek_global_index: self.gorseli_kaldir_new(idx)
             ).pack(side="left")
     
         # --- Alt butonlar ---
@@ -1084,7 +1244,7 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
     
         button_container = ctk.CTkFrame(buttons_frame, fg_color="transparent")
         button_container.pack(expand=True)
-    
+        
         ctk.CTkButton(
             button_container, text="PDF Oluştur",
             command=self.pdf_olustur,
@@ -1092,7 +1252,7 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
             width=160, height=40, corner_radius=10,
             fg_color="#28a745", hover_color="#218838"
         ).pack(side="left", padx=(0, 10))
-    
+        
         ctk.CTkButton(
             button_container, text="Geri",
             command=self.geri_don,
@@ -1100,60 +1260,12 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
             width=100, height=40, corner_radius=10,
             fg_color="#6c757d", hover_color="#5a6268"
         ).pack(side="left")
-
-    # def make_card_header_with_info(self, parent, konu_adi, on_refresh, on_delete, max_len=25):
-    #     """
-    #     Kart üst başlığı: i (tooltip) + kısa konu adı + sağda ikon butonlar (güncelle/sil).
-    #     parent: kartın üst satırı konulacak frame
-    #     """
-    #     header = ctk.CTkFrame(parent, fg_color="transparent", height=44)
-    #     header.pack(fill="x", side="top", padx=10, pady=(8, 4))
-    #     header.pack_propagate(False)
-
-    #     # Grid: [i ikonu][konu metni][butonlar]
-    #     header.grid_columnconfigure(0, weight=0)
-    #     header.grid_columnconfigure(1, weight=1)
-    #     header.grid_columnconfigure(2, weight=0)
-
-    #     # i ikonu (tooltip'te TAM konu adı)
-    #     info_icon = ctk.CTkLabel(header, text="🛈", font=ctk.CTkFont(size=14), text_color="#334155", cursor="hand2")
-    #     info_icon.grid(row=0, column=0, sticky="w", padx=(0, 6))
-    #     ToolTip(info_icon, konu_adi)
-
-    #     # Kısaltılmış konu adı (tek satır, … ile)
-    #     short_name = konu_adi if len(konu_adi) <= max_len else konu_adi[:max_len] + "..."
-    #     konu_lbl = ctk.CTkLabel(
-    #         header,
-    #         text=short_name,
-    #         font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-    #         text_color="#1e293b"
-    #     )
-    #     konu_lbl.grid(row=0, column=1, sticky="w")
-
-    #     # Sağdaki ikon butonlar (küçük ve minimal)
-    #     btn_row = ctk.CTkFrame(header, fg_color="transparent")
-    #     btn_row.grid(row=0, column=2, sticky="e", padx=(6, 0))
-
-    #     refresh_btn = ctk.CTkButton(
-    #         btn_row, text="🔄", width=34, height=30,
-    #         fg_color="#e2e8f0", text_color="#1f2937",
-    #         hover_color="#cbd5e1", command=on_refresh
-    #     )
-    #     refresh_btn.pack(side="left", padx=(0, 6))
-
-    #     delete_btn = ctk.CTkButton(
-    #         btn_row, text="🗑", width=34, height=30,
-    #         fg_color="#fee2e2", text_color="#991b1b",
-    #         hover_color="#fecaca", command=on_delete
-    #     )
-    #     delete_btn.pack(side="left")
-
-    #     return header
-
+    
     def change_page_new(self, pdf_container, controls_container, direction):
-        """Yeni tasarımda sayfa değiştir - SAĞ PANELİ KORU"""
-        sorular_per_sayfa = self._get_sorular_per_sayfa()
-        toplam_sayfa = math.ceil(len(self.secilen_gorseller) / sorular_per_sayfa)
+        """Yeni tasarımda sayfa değiştir (HARİTADAN OKUR)"""
+        
+        # --- YENİ PLANLANMIŞ MATEMATİK ---
+        toplam_sayfa = len(self.sayfa_haritasi) # Plana bak
 
         new_page = self.current_page + direction
         if 0 <= new_page < toplam_sayfa:
@@ -1161,21 +1273,12 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
             self.current_page = new_page
             self.logger.debug(f"Sayfa değişti: {old_page + 1} -> {new_page + 1}")
 
-            # ✅ SADECE SOL PANELİ YENİLE
-            self.refresh_pdf_preview_only(pdf_container)
-
-            # ✅ SAĞ PANELİ YENİLE (yeni sayfa görselleri için)
-            start_idx = self.current_page * sorular_per_sayfa
-            end_idx = min(start_idx + sorular_per_sayfa, len(self.secilen_gorseller))
-            sayfa_gorselleri = self.secilen_gorseller[start_idx:end_idx]
-
-            # Sağ kontrol panelini yeniden oluştur
-            for widget in controls_container.winfo_children():
-                widget.destroy()
-            self.create_controls_panel(controls_container, sayfa_gorselleri, start_idx, pdf_container)
-        
-    def gorseli_guncelle_new(self, index, pdf_container):
-        """Yeni tasarımda görsel güncelle - Kullanılan takibi ile"""
+            # 'display_images_new' fonksiyonu hem solu (PDF) hem sağı (Kontroller)
+            # güncel haritaya göre yeniden çizer ve GEREKLİ offset'i hesaplar.
+            self.display_images_new(pdf_container, controls_container)
+    
+    def gorseli_guncelle_new(self, index):
+        """Yeni tasarımda görsel güncelle - YENİDEN PLANLAMA İLE"""
         try:
             if 0 <= index < len(self.secilen_gorseller):
                 mevcut_gorsel_path = self.secilen_gorseller[index]
@@ -1205,8 +1308,8 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
                 ]
     
                 if not kullanilmamis_gorseller:
-                    # *** YENİ: Havuz tükendi, kullanıcıya sor ***
-                    self.show_havuz_tukendi_dialog(mevcut_konu, index, pdf_container)
+                    # *** YENİ: Havuz tükendi, kullanıcıya sor (parametresiz) ***
+                    self.show_havuz_tukendi_dialog(mevcut_konu, index)
                     return
     
                 # Rastgele yeni görsel seç
@@ -1222,15 +1325,18 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
                 self.secilen_gorseller[index] = yeni_gorsel_path
                 self.logger.info(f"Görsel güncellendi: {eski_gorsel_dosya} -> {yeni_gorsel_dosya}")
     
-                # Önizlemeyi yenile
-                self.refresh_pdf_preview_only(pdf_container)
+                # --- ESKİ YENİLEMEYİ SİL ---
+                # self.refresh_pdf_preview_only(pdf_container)
+                
+                # --- YENİ SENKRONİZASYONU EKLE ---
+                self._replan_and_refresh_ui()
     
         except Exception as e:
             self.logger.error(f"Görsel güncelleme hatası: {e}")
             self.show_error("Görsel güncellerken bir hata oluştu!")
-        
-    def gorseli_kaldir_new(self, index, pdf_container):
-        """Yeni tasarımda görsel kaldır - Kullanılan takibi ile"""
+    
+    def gorseli_kaldir_new(self, index):
+        """Yeni tasarımda görsel kaldır - YENİDEN PLANLAMA İLE"""
         try:
             if 0 <= index < len(self.secilen_gorseller):
                 kaldirilan_gorsel_path = self.secilen_gorseller.pop(index)
@@ -1250,22 +1356,22 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
                         "Tüm görseller kaldırıldı!\nYeni seçim yapmak için 'Geri' butonuna tıklayın.",
                         geri_don=False 
                     )
+                    # Ekranı boşaltmak için yine de planı yenile
+                    self._replan_and_refresh_ui()
                     return
 
-                # Sayfa kontrolü
-                sorular_per_sayfa = self._get_sorular_per_sayfa()
-                toplam_sayfa = math.ceil(len(self.secilen_gorseller) / sorular_per_sayfa)
-                if self.current_page >= toplam_sayfa:
-                    self.current_page = max(0, toplam_sayfa - 1)
-
-                # Önizlemeyi yenile
-                self.refresh_pdf_preview_only(pdf_container)
+                # --- ESKİ YENİLEMEYİ VE SAYFA KONTROLÜNÜ SİL ---
+                # sorular_per_sayfa = self._get_sorular_per_sayfa()
+                # ...
+                # self.refresh_pdf_preview_only(pdf_container)
+                
+                # --- YENİ SENKRONİZASYONU EKLE ---
+                self._replan_and_refresh_ui()
 
         except Exception as e:
             self.logger.error(f"Görsel kaldırma hatası: {e}")
             self.show_error("Görsel kaldırılırken bir hata oluştu!")
-    
-    def show_havuz_tukendi_dialog(self, konu_adi, index, pdf_container):
+    def show_havuz_tukendi_dialog(self, konu_adi, index):
         """Havuz tükendiğinde kullanıcıya sor"""
 
         dialog_window = ctk.CTkToplevel(self.master)
@@ -1308,8 +1414,8 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
             # Havuzu sıfırla
             self.kullanilan_sorular[konu_adi] = set()
             dialog_window.destroy()
-            # Güncellemeyi tekrar dene
-            self.gorseli_guncelle_new(index, pdf_container)
+            # Güncellemeyi tekrar dene (artık pdf_container parametresi olmadan)
+            self.gorseli_guncelle_new(index)
 
         def iptal():
             dialog_window.destroy()
@@ -1338,8 +1444,7 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
             fg_color="#6c757d",
             hover_color="#5a6268"
         )
-        hayir_btn.pack(side="left", padx=10)
-                                  
+        hayir_btn.pack(side="left", padx=10)                             
     def find_topic_from_path(self, gorsel_path):
         """Görsel yolundan hangi konudan geldiğini bul"""
         try:
@@ -1356,9 +1461,12 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
         soru_tipi = self.soru_tipi_var.get().lower()
         return 2 if soru_tipi == "yazili" else 8
 
-    def create_page_preview(self, sayfa_gorselleri, start_idx):
-        """Bir sayfa için PDF önizlemesi oluştur"""
-        self.logger.debug(f"Sayfa önizlemesi oluşturuluyor - {len(sayfa_gorselleri)} görsel")
+    def create_page_preview(self, bu_sayfanin_sutunlari, global_offset):
+        """
+        Bir sayfa için PDF önizlemesi oluşturur.
+        ARTIK 'bu_sayfanin_sutunlari' (örn: [ [sol_liste], [sağ_liste] ]) alır.
+        """
+        self.logger.debug(f"Sayfa önizlemesi oluşturuluyor - {sum(len(s) for s in bu_sayfanin_sutunlari)} görsel, offset: {global_offset}")
 
         try:
             # Soru tipine göre şablon seç
@@ -1387,145 +1495,183 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
 
             # Soru tipine göre layout hesapla
             template_width, template_height = template_copy.size
-
+            
+            # 'bu_sayfanin_sutunlari' listesini (örn: [ [sol_liste], [sağ_liste] ])
+            # ve 'global_offset'i aktar
             if soru_tipi == "yazili":
-                self._create_yazili_preview(template_copy, sayfa_gorselleri, start_idx, template_width, template_height)
+                # Yazılı modu 1 sütunludur, bu yüzden sütunları düzleştirip gönder
+                sayfa_gorselleri_bilgileri_duz = []
+                for sutun in bu_sayfanin_sutunlari:
+                    sayfa_gorselleri_bilgileri_duz.extend(sutun)
+                self._create_yazili_preview(template_copy, sayfa_gorselleri_bilgileri_duz, template_width, template_height, global_offset)
             else:
-                self._create_test_preview(template_copy, sayfa_gorselleri, start_idx, template_width, template_height)
+                # --- NİZAM (GÖRSELLİK) ÇÖZÜMÜ BURADA ÇAĞRILIYOR ---
+                self._create_test_preview_BestFit(template_copy, bu_sayfanin_sutunlari, template_width, template_height, global_offset)
 
             # Önizleme için boyutlandır (oranı koru)
             preview_width = 600
-            preview_height = int(2000 * preview_width / 1414)
-            template_copy = template_copy.resize((preview_width, preview_height), Image.Resampling.LANCZOS)
+            preview_height = int(2000 * preview_width / 1414) # A4 Oranı
+            
+            resampling_filter = Image.Resampling.LANCZOS if hasattr(Image.Resampling, "LANCZOS") else Image.ANTIALIAS
+            template_copy = template_copy.resize((preview_width, preview_height), resampling_filter)
 
             self.logger.debug("Sayfa önizlemesi başarıyla oluşturuldu")
             return ImageTk.PhotoImage(template_copy)
 
         except Exception as e:
-            self.logger.error(f"Sayfa önizleme hatası: {e}")
+            self.logger.error(f"Sayfa önizleme hatası: {e}", exc_info=True)
             return None
-
-    def _create_yazili_preview(self, template_copy, sayfa_gorselleri, start_idx, template_width, template_height):
-        """Yazılı şablonu önizleme layout'u"""
+        
+    def _create_yazili_preview(self, sayfa_gorselleri_bilgileri_duz, template_width, template_height, global_offset):
+        """Yazılı şablonu önizleme layout'u (ARTIK DOĞRU SIRALI NUMARA)"""
         self.logger.debug("Yazılı önizleme layout'u uygulanıyor")
         
-        # Yazılı için dikey layout (1 sütun)
         top_margin = int(template_height * 0.1)
         left_margin = int(template_width * 0.05)
         right_margin = int(template_width * 0.05)
         bottom_margin = int(template_height * 0.05)
-
-        # Kullanılabilir alan
         usable_width = template_width - left_margin - right_margin
         usable_height = template_height - top_margin - bottom_margin
-
-        # Her soru için alan - soru + cevap alanı
-        soru_ve_cevap_yuksekligi = usable_height // 3
-
-        # Soru görseli için alan
-        yazili_soru_height = int(soru_ve_cevap_yuksekligi * 0.6)
+        
+        max_soru = 2 # Yazılı için 2 soru
+        soru_ve_cevap_yuksekligi = usable_height // max_soru 
+        yazili_soru_height = int(soru_ve_cevap_yuksekligi * 0.7) 
         yazili_soru_width = usable_width  # Tam genişlik
 
         self.logger.debug(f"Yazılı layout boyutları - Genişlik: {yazili_soru_width}, Yükseklik: {yazili_soru_height}")
 
         # Görselleri yerleştir
-        for i, gorsel_path in enumerate(sayfa_gorselleri):
-            if i >= 2:  # Yazılı için maksimum 3 soru
-                self.logger.warning(f"Yazılı önizlemede maksimum 3 soru gösterilebilir, {len(sayfa_gorselleri)} soru var")
+        for i, soru_info in enumerate(sayfa_gorselleri_bilgileri_duz):
+            if i >= max_soru:
+                self.logger.warning(f"Yazılı önizlemede maksimum {max_soru} soru gösterilebilir.")
                 break
                 
             try:
-                # Yazılı için dikey düzen
+                gorsel_path = soru_info['path']
+                # <<< SIRALI NUMARA ÇÖZÜMÜ >>>
+                soru_no = global_offset + i + 1
+                
                 x = left_margin
                 y = top_margin + i * soru_ve_cevap_yuksekligi
 
-                # Soruyu aç ve boyutlandır
                 soru_img = Image.open(gorsel_path)
-
-                # Yazılı için tam genişlik
-                new_width = yazili_soru_width
+                
+                # Oranı koruyarak sığdır
                 img_ratio = soru_img.width / soru_img.height
-                new_height = int(yazili_soru_width / img_ratio)
+                final_width = yazili_soru_width
+                final_height = int(final_width / img_ratio)
 
-                if new_height > yazili_soru_height:
-                    new_height = yazili_soru_height
+                if final_height > yazili_soru_height:
+                    final_height = yazili_soru_height
+                    final_width = int(final_height * img_ratio)
+                
+                # Sığdırılan resmi ortala
+                paste_x = x + (yazili_soru_width - final_width) // 2
+                
+                resampling_filter = Image.Resampling.LANCZOS if hasattr(Image.Resampling, "LANCZOS") else Image.ANTIALIAS
+                soru_img = soru_img.resize((final_width, final_height), resampling_filter)
+                template_copy.paste(soru_img, (int(paste_x), int(y)))
 
-                soru_img = soru_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                template_copy.paste(soru_img, (x, y))
-
-                # Soru numarası ekle
+                # Soru numarası ekle (ARTIK 'soru_no' DOĞRU)
                 draw = ImageDraw.Draw(template_copy)
                 try:
-                    font = ImageFont.truetype("arial.ttf", 20)
+                    font = ImageFont.truetype("arialbd.ttf", 30) # Biraz daha büyük
                 except:
-                    font = ImageFont.load_default()
+                    try:
+                        font = ImageFont.truetype("arial.ttf", 30)
+                    except:
+                        font = ImageFont.load_default()
 
-                soru_no = start_idx + i + 1
-                draw.text((x + 15, y + 30), f"{soru_no}.", fill="black", font=font)
+                # Numarayı sol üste (sorunun değil, alanın sol üstüne) koy
+                draw.text((x, y), f"{soru_no}.", fill="#333333", font=font)
                 
-                self.logger.debug(f"Yazılı soru {soru_no} yerleştirildi - Boyut: {new_width}x{new_height}")
+                self.logger.debug(f"Yazılı soru {soru_no} yerleştirildi - Boyut: {final_width}x{final_height}")
 
             except Exception as e:
-                self.logger.error(f"Yazılı soru {i+1} yerleştirme hatası: {e}")
-
-    def _create_test_preview(self, template_copy, sayfa_gorselleri, start_idx, template_width, template_height):
-        """Test şablonu önizleme layout'u"""
-        self.logger.debug("Test önizleme layout'u uygulanıyor")
-        
-        # Test için 2x4 grid
-        top_margin = 150
-        left_margin = 50
-        right_margin = 50
-        bottom_margin = 100
-
-        usable_width = template_width - left_margin - right_margin
-        usable_height = template_height - top_margin - bottom_margin
-
-        test_soru_width = usable_width // 2 - 20
-        test_soru_height = usable_height // 4 - 40
-        
-        self.logger.debug(f"Test layout boyutları - Genişlik: {test_soru_width}, Yükseklik: {test_soru_height}")
-
-        # Görselleri yerleştir
-        for i, gorsel_path in enumerate(sayfa_gorselleri):
-            if i >= 8:  # Test için maksimum 8 soru
-                self.logger.warning(f"Test önizlemede maksimum 8 soru gösterilebilir, {len(sayfa_gorselleri)} soru var")
-                break
+                self.logger.error(f"Yazılı soru {i+1} yerleştirme hatası: {e}", exc_info=True)
                 
+    def _create_test_preview_BestFit(self, template_copy, bu_sayfanin_sutunlari, template_width, template_height, global_offset):
+        """
+        Test şablonu önizleme layout'u (NİZAMİ GÖRÜNÜM + SIRALI NUMARA)
+        'planla_test_duzeni'nden gelen SÜTUNLU haritayı okur ve çizer.
+        HATASIZ VERSİYON.
+        """
+        self.logger.debug(f"Test önizleme (BestFit NİZAMİ) layout'u uygulanıyor - {sum(len(s) for s in bu_sayfanin_sutunlari)} soru")
+
+        # --- 1. PDF GENERATOR İLE AYNI SABİTLERİ TANIMLA ---
+        A4_W, A4_H = 595.27, 841.89
+        template_W, template_H = template_width, template_height
+        
+        scale_factor = template_H / A4_H 
+        
+        top_margin = 50 * scale_factor
+        bottom_margin = 5 * scale_factor
+        left_margin = 20 * scale_factor
+        right_margin = 20 * scale_factor
+        col_gap = 40 * scale_factor
+        cols = 2
+        
+        # --- NUMARA BOYUTU DÜZELTMESİ ---
+        soru_numara_font_size = int(12 * scale_factor) # 16'dan 12'ye düşürüldü
+        
+        soru_spacing = 8 * scale_factor
+        image_spacing = 10 * scale_factor
+
+        col_width = (template_W - left_margin - right_margin - col_gap) / cols
+        
+        current_x_positions = [left_margin + i * (col_width + col_gap) for i in range(cols)]
+        
+        # PIL (0,0 sol üst) mantığıyla Y (dikey) pozisyonları (Tepeden başlar)
+        current_y_positions_tepe = [top_margin for _ in range(cols)] 
+
+        yerlestirildi_sayaci = 0 # Bu, 'global_offset'e eklenecek sıralı sayaçtır
+        
+        draw = ImageDraw.Draw(template_copy)
+        try:
+            numara_font = ImageFont.truetype("arialbd.ttf", soru_numara_font_size)
+        except:
             try:
-                # Test için 2x4 grid
-                row = i % 4
-                col = i // 4
+                numara_font = ImageFont.truetype("arial.ttf", soru_numara_font_size)
+            except:
+                numara_font = ImageFont.load_default()
 
-                x = left_margin + col * (test_soru_width + 20)
-                y = top_margin + row * (test_soru_height + 40)
-
-                # Soruyu aç ve boyutlandır
-                soru_img = Image.open(gorsel_path)
-
-                # Test için eski mantık
-                soru_img.thumbnail((test_soru_width, test_soru_height), Image.Resampling.LANCZOS)
-                img_w, img_h = soru_img.size
-                paste_x = x + (test_soru_width - img_w) // 2
-                paste_y = y + (test_soru_height - img_h) // 2
-
-                template_copy.paste(soru_img, (paste_x, paste_y))
-
-                # Soru numarası ekle
-                draw = ImageDraw.Draw(template_copy)
-                try:
-                    font = ImageFont.truetype("arial.ttf", 20)
-                except:
-                    font = ImageFont.load_default()
-
-                soru_no = start_idx + i + 1
-                draw.text((x + 15, y + 30), f"{soru_no}.", fill="black", font=font)
+        # --- 2. SÜTUNLU PLANI ÇİZ ---
+        for sutun_index in range(cols):
+            sutun_sorulari = bu_sayfanin_sutunlari[sutun_index]
+            img_x = current_x_positions[sutun_index]
+            
+            for soru_info in sutun_sorulari:
                 
-                self.logger.debug(f"Test soru {soru_no} yerleştirildi - Grid: ({row+1},{col+1})")
+                scaled_width = soru_info['final_size'][0] * scale_factor
+                scaled_height = soru_info['final_size'][1] * scale_factor
+                
+                pil_y_top = current_y_positions_tepe[sutun_index] + soru_spacing
+                
+                try:
+                    soru_img = Image.open(soru_info['path'])
+                    resampling_filter = Image.Resampling.LANCZOS if hasattr(Image.Resampling, "LANCZOS") else Image.ANTIALIAS
+                    soru_img = soru_img.resize((int(scaled_width), int(scaled_height)), resampling_filter)
+                    
+                    template_copy.paste(soru_img, (int(img_x), int(pil_y_top)))
+                    
+                    soru_no = global_offset + yerlestirildi_sayaci + 1
+                    
+                    numara_x = img_x - (15 * scale_factor)
+                    numara_y = pil_y_top 
+                    if soru_no >= 10:
+                        numara_x -= (5 * scale_factor) 
+                        
+                    draw.text((numara_x, numara_y), f"{soru_no}.", fill="#333333", font=numara_font)
 
-            except Exception as e:
-                self.logger.error(f"Test soru {i+1} yerleştirme hatası: {e}")
+                except Exception as e:
+                    self.logger.error(f"PIL Gorsel cizim hatasi: {soru_info['path']}", exc_info=True)
+                    continue
 
+                current_y_positions_tepe[sutun_index] = pil_y_top + scaled_height + image_spacing
+                yerlestirildi_sayaci += 1
+                
+        self.logger.info(f"Test önizleme (BestFit NİZAMİ) tamamlandi - {yerlestirildi_sayaci} soru yerlestirildi")
+                   
     def geri_don(self):
         """Soru parametre seçim ekranına geri dön"""
         try:
@@ -1548,11 +1694,10 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
             self.konu_baslik_sayfasina_don()
 
     def pdf_olustur(self):
-        """PDF oluştur ve kullanıcıya bildir"""
+        """PDF oluştur ve kullanıcıya bildir (ARTIK 'HARİTA' GÖNDERİYOR)"""
         self.logger.info(f"PDF oluşturma başlatıldı - {self.ders_adi}")
         
         try:
-            # Reportlab modülü kontrolü
             try:
                 import reportlab
                 self.logger.debug("Reportlab modülü mevcut")
@@ -1563,22 +1708,19 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
                     "PDF oluşturmak için 'reportlab' modülü gerekli.\n\nÇözüm: Terminal'e şunu yazın:\npip install reportlab"
                 )
                 return
-
-            # PDF generator kontrolü
             try:
                 self.logger.debug("PDFCreator import edildi")
             except ImportError as e:
                 self.logger.error(f"PDFCreator import hatası: {e}")
                 self.basit_pdf_olustur()
                 return
-
-            # Cevap bilgisini alma
             try:
                 cevap_bilgisi_mevcut = True
                 self.logger.debug("Cevap bilgisi modülü mevcut")
             except ImportError:
                 cevap_bilgisi_mevcut = False
                 self.logger.warning("Cevap bilgisi modülü bulunamadı")
+
 
             # PDF oluştur
             pdf = PDFCreator()
@@ -1594,33 +1736,29 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
 
             self.logger.debug(f"PDF'e geçen soru tipi: {self.soru_tipi_var.get()}")
 
-            # Görselleri ekle
+            # Görselleri ekle (Ana listeyi 'gorsel_listesi'ne kopyala)
+            pdf.gorsel_listesi = self.secilen_gorseller[:]
+            
             cevaplar = []
             for idx, gorsel in enumerate(self.secilen_gorseller, 1):
                 try:
                     cevap = get_answer_for_image(gorsel)
                     cevaplar.append(cevap)
-                    pdf.gorsel_ekle(gorsel)
-                    self.logger.debug(f"Görsel {idx} PDF'e eklendi")
                 except Exception as e:
-                    self.logger.error(f"Görsel {idx} ekleme hatası: {e}")
-
-            # *** YENİ EKLENEN KISIM - Cevap anahtarı kontrolü ***
+                    self.logger.error(f"Görsel {idx} için cevap alınamadı: {e}")
+            
+            # Cevap anahtarı kontrolü
             cevap_anahtari_isteniyor = self.cevap_anahtari_var.get() == "Evet"
             self.logger.info(f"Cevap anahtarı kontrolü: {cevap_anahtari_isteniyor}")
 
-            # Cevap anahtarını sadece istenirse ekle
             if cevap_anahtari_isteniyor and cevaplar:
                 pdf.cevap_anahtari_ekle(cevaplar)
-                self.logger.debug(f"{len(cevaplar)} cevap anahtarı eklendi")
-                # '?' oranı için kullanıcıya bilgi ver (akışı kesmeden)
                 try:
                     bilinmeyen = sum(1 for c in cevaplar if str(c).strip() == "?")
                     if bilinmeyen > 0:
                         oran = int(100 * bilinmeyen / max(1, len(cevaplar)))
                         info = f"Cevap anahtarında {bilinmeyen}/{len(cevaplar)} soru için cevap bulunamadı (%{oran})."
                         self.logger.warning(info)
-                        # Hafif uyarı diyaloğu
                         try:
                             self._show_dialog("Cevap Anahtarı Uyarısı", info, "#ffc107")
                         except Exception:
@@ -1642,12 +1780,14 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
             if cikti_dosya:
                 self.logger.info(f"PDF kaydediliyor: {cikti_dosya}")
                 
-                if pdf.kaydet(cikti_dosya):
+                # --- TEK BEYİN ÇÖZÜMÜ ---
+                # Önizleme için kullandığımız 'sayfa_haritasi'nı (planı)
+                # 'kaydet' fonksiyonuna parametre olarak gönderiyoruz.
+                if pdf.kaydet(cikti_dosya, self.sayfa_haritasi):
                     kayit_yeri = f"{os.path.basename(os.path.dirname(cikti_dosya))}/{os.path.basename(cikti_dosya)}"
                     
                     self.logger.info(f"PDF başarıyla oluşturuldu: {os.path.basename(cikti_dosya)}")
                     
-                    # Başarılı bildirimi
                     self.show_notification(
                         "PDF Başarıyla Oluşturuldu!",
                         f"Kayıt Yeri: {kayit_yeri}\n\n{len(self.secilen_gorseller)} soru PDF formatında kaydedildi\n\nKonu Dağılımı:\n" + 
@@ -1668,7 +1808,7 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
                 "Hata",
                 f"Beklenmeyen bir hata oluştu:\n{str(e)}\n\nLütfen konsolu kontrol edin."
             )
-
+    
     def basit_pdf_olustur(self):
         """Basit PDF oluşturma - PDFCreator sınıfı import edilemediğinde"""
         self.logger.warning("Basit PDF oluşturma moduna geçildi")
@@ -1914,15 +2054,43 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
         """Bilgilendirme sonrası güvenle önizleme akışına geç."""
         try:
             self.secilen_gorseller = self.secili_gorselleri_al(soru_tipi, zorluk)
-            if self.secilen_gorseller:
-                self.logger.info(f"{len(self.secilen_gorseller)} görsel seçildi, önizleme ekranı açılıyor")
-                self.gorsel_onizleme_alani_olustur()
-            else:
+            
+            if not self.secilen_gorseller:
                 self.logger.error("Hiç görsel seçilemedi")
                 self.show_error("Seçilen konularda görsel bulunamadı!")
-        except Exception as e:
-            self.logger.error(f"Önizleme akışında hata: {e}")
+                return
 
+            # --- YENİ EKLENEN PLANLAMA ADIMI ---
+            self.logger.info("BestFit planlaması başlatılıyor...")
+            pdf_planner = PDFCreator()
+            pdf_planner.gorsel_listesi = self.secilen_gorseller
+            
+            if soru_tipi.lower() == "test":
+                # 'pdf_generator'dan gelen YENİ BEYİN fonksiyonunu çağır
+                self.sayfa_haritasi = pdf_planner.planla_test_duzeni()
+            else:
+                # Yazılı modu için basit planlama (2'li gruplar)
+                # 'planla_test_duzeni'nin formatına benzetiyoruz
+                self.logger.info("Yazılı (basit) planlaması başlatılıyor...")
+                soru_listesi = [
+                    {'index': i, 'path': path, 'total_height': 500} # Yükseklik tahmini
+                    for i, path in enumerate(self.secilen_gorseller)
+                ]
+                self.sayfa_haritasi = [soru_listesi[i:i+2] for i in range(0, len(soru_listesi), 2)]
+            # --- PLANLAMA BİTTİ ---
+
+            if self.sayfa_haritasi:
+                self.logger.info(f"{len(self.secilen_gorseller)} görsel {len(self.sayfa_haritasi)} sayfaya planlandı.")
+                self.current_page = 0 # Sayfayı sıfırla
+                self.gorsel_onizleme_alani_olustur() # Önizlemeyi oluştur
+            else:
+                self.logger.error("Hiç görsel seçilemedi (planlama sonucu boş)")
+                self.show_error("Seçilen konularda görsel bulunamadı!")
+
+        except Exception as e:
+            self.logger.error(f"Önizleme akışında hata: {e}", exc_info=True)
+            self.show_error(f"Önizleme oluşturulurken hata oluştu: {e}")
+            
     def update_total(self):
         """Toplam seçilen soru sayısını canlı güncelle"""
         try:
