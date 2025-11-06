@@ -1,14 +1,28 @@
 1-Klasör seçim ekrnaında çok büyük klasörler seçince örneğin masaüstü uygulama çöktü
+
 2-Klasör seçim ekranında detay paneli yazılı detaylarını göstermiyor,yani bir konuya tıklayınca konunun içindeki
 test/yazılı detaylarından test'i gösteriyor ama yazılıyı göstermiyor
+
 3-Soru parametrelerini seçtiğimiz ekranda  çıkan dialog kutusunun içi çok uzunsa kutunun içinde bulunan tamam 
 butonu çok küçülüyor
+
 4-Konu başlığı seçimi ekranında arama kutusundaki öğeyle eşleşen klasör yoksa bir yazı çıkmıyor sadece boşluk
 var
+
 5-Önizleme ekranında sorular seçili geliyor ama havuz dolduğunda seçili sorular değişiyor
+
 6-Önizleme ekranında silinen soru ,soruları güncellediğimde tekrardan geliyor
-7-Yazılı şablonunda hata alıyorum önizleme ekranı oluşmuyor
+
+7-Yazılı şablonunda hata alıyorum önizleme ekranı oluşmuyor ( + halledildi )
+
 8-Cevap anahtarı hala json dosyasından okunuyor
+
 9-En son problem ise test şablonunda başlık eklenmiyor ( + halledildi )
 
-10(opsiyonel) - cevap anahtarı optiğe yazılabilir mi ?
+10-Eğer bir klasördeki soruların tamamı kullanılırsa,güncelle butonuna bastığımda soru-havuzunu sıfırla seçeneği
+çıkıyor ama sıfırlasamda yine aynı çünkü güncelleyecek soru yok hepsi pdf'te bunun için ayrı bir diyalog penceresi
+yapmamız lazım 
+
+11-Kaydedilen yazılı ve test pdf'lerinde sadece ilk sayfaya başlık eklemeliyiz ki kağıttan tasarruf edelim 
+
+12- (opsiyonel) - cevap anahtarı optiğe yazılabilir mi ?

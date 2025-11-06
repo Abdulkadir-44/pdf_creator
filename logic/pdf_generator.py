@@ -454,28 +454,23 @@ class PDFCreator:
     
     def kaydet(self, dosya_yolu, sayfa_haritasi=None):
         """
-        GÜNCELLENDİ (TEK BEYİN + BAŞLIK):
-        Artık 'sayfa_haritasi'nı (Önizlemenin kullandığı planı) parametre olarak alır
-        ve 'self.baslik_metni'ni her sayfaya çizer.
+        GÜNCELLENDİ (DİNAMİK ŞABLON):
+        Artık 'sayfa_haritasi'nı (Önizlemenin kullandığı planı) parametre olarak alır.
+        Başlığı SADECE 1. SAYFAYA çizer.
+        Şablonu SADECE 1. SAYFA için 'template.png'/'template2.png',
+        diğer sayfalar için 'template3.png'/'template4.png' olarak seçer.
         """
         try:
             logger.info(f"PDF oluşturma başlıyor: Tip={self.soru_tipi}, Dosya={os.path.basename(dosya_yolu)}")
             self.global_soru_sayaci = 0
 
             current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            template_name = "template2.png" if self.soru_tipi.lower() == "yazili" else "template.png"
-            template_path = os.path.join(current_dir, "templates", template_name)
-
-            if not os.path.exists(template_path):
-                logger.warning("Şablon bulunamadı, basit PDF oluşturuluyor")
-                return self._basit_pdf_olustur(dosya_yolu)
+            templates_dir = os.path.join(current_dir, "templates")
 
             c = canvas.Canvas(dosya_yolu, pagesize=A4)
 
             # --- YENİ MANTIK (TEK BEYİN) ---
             
-            # Eğer 'kaydet' fonksiyonu UI'dan (Önizlemeden) çağrılmadıysa
-            # ve harita 'None' geldiyse, kendi planını yapsın
             if sayfa_haritasi is None:
                 logger.warning("Kaydet fonksiyonuna harita gelmedi. Plan yeniden hesaplanıyor.")
                 if not hasattr(self, 'planla_test_duzeni'):
@@ -491,36 +486,59 @@ class PDFCreator:
                     ]
                     sayfa_listesi = []
                     for i in range(0, len(soru_listesi), 2):
-                        # Sütunlu harita formatına [ [col1], [col2] ] uydur
                         sayfa_listesi.append([ soru_listesi[i:i+2], [] ])
                     sayfa_haritasi = sayfa_listesi
             
-            # Haritayı (Önizlemeden geleni VEYA şimdi hesaplananı) kullanarak PDF'i çiz
-            sayfa_no = 1
-            for bu_sayfanin_sutunlari in sayfa_haritasi:
+            # --- GÜNCELLEME: 'enumerate' KULLANARAK SAYFA İNDEKSİNİ (i) AL ---
+            for i, bu_sayfanin_sutunlari in enumerate(sayfa_haritasi):
+                sayfa_no = i + 1 # Sayfa 1 (i=0), Sayfa 2 (i=1)
+                soru_tipi_lower = self.soru_tipi.lower()
+                
+                # --- YENİ DİNAMİK ŞABLON SEÇİMİ ---
+                if sayfa_no == 1:
+                    # Sayfa 1: Başlıklı şablonlar
+                    template_name = "template2.png" if soru_tipi_lower == "yazili" else "template.png"
+                    template_name_fallback = template_name
+                else:
+                    # Sayfa 2+: Başlıksız şablonlar
+                    template_name = "template4.png" if soru_tipi_lower == "yazili" else "template3.png"
+                    # Fallback (eğer template3/4 yoksa, başlıklıyı kullan)
+                    template_name_fallback = "template2.png" if soru_tipi_lower == "yazili" else "template.png"
+                
+                template_path = os.path.join(templates_dir, template_name)
+                
+                # Şablonu kontrol et, yoksa fallback kullan
+                if not os.path.exists(template_path):
+                    logger.warning(f"Dinamik şablon '{template_name}' bulunamadı. Fallback '{template_name_fallback}' kullanılıyor.")
+                    template_path = os.path.join(templates_dir, template_name_fallback)
+                    
+                    if not os.path.exists(template_path):
+                         logger.error(f"Fallback şablon '{template_name_fallback}' dahi bulunamadı!")
+                         return False # Kritik hata
+                # --- DİNAMİK ŞABLON BİTTİ ---
+
                 # 1. Şablonu çiz
                 c.drawImage(template_path, 0, 0, width=A4[0], height=A4[1])
                 
-                # --- YENİ ADIM: BAŞLIĞI ÇİZ ---
-                self._draw_title_on_canvas(c) 
-                # --- YENİ ADIM BİTTİ ---
+                # 2. Başlığı SADECE 1. SAYFADA ÇİZ
+                if sayfa_no == 1:
+                    if hasattr(self, '_draw_title_on_canvas'):
+                        self._draw_title_on_canvas(c) 
+                    else:
+                        logger.warning("'_draw_title_on_canvas' fonksiyonu bulunamadı, başlık çizilemiyor.")
                 
-                # 2. Soruları çiz
+                # 3. Soruları çiz
                 total_placed_on_prev_pages = self.global_soru_sayaci
                 
-                if self.soru_tipi.lower() == "yazili":
-                    # Yazılı modunda sütunları düzleştir
+                if soru_tipi_lower == "yazili":
                     soru_listesi_duz = []
                     for sutun in bu_sayfanin_sutunlari:
                         soru_listesi_duz.extend(sutun)
-                    
                     gorseller = [info['path'] for info in soru_listesi_duz]
-                    
                     yerlestirildi = self._create_yazili_layout_simple(
                         c, gorseller, sayfa_no, A4[0], A4[1], total_placed_on_prev_pages
                     )
                 else:
-                    # 'create_working_test_layout' artık SÜTUNLU PLANI alıyor
                     yerlestirildi, _ = self._create_working_test_layout(
                         c, bu_sayfanin_sutunlari, sayfa_no, A4[0], A4[1], total_placed_on_prev_pages
                     )
@@ -529,7 +547,6 @@ class PDFCreator:
                 
                 if sayfa_no < len(sayfa_haritasi): # Son sayfa değilse
                     c.showPage()
-                    sayfa_no += 1
             
             # --- YENİ MANTIK BİTTİ ---
 
@@ -548,7 +565,7 @@ class PDFCreator:
             print(f"❌ PDF KAYDETME HATASI: {e}")
             logger.error(f"PDF kaydetme işleminde kritik hata", exc_info=True)
             return False
-        
+         
     def _create_yazili_layout_simple(self, canvas_obj, gorseller, sayfa_no, page_width, page_height, global_offset):
         """Yazılı için basit layout - sayfa başına maksimum 2 soru"""
         logger.info(f"Yazılı basit layout - Sayfa {sayfa_no}, {len(gorseller)} soru")

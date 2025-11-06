@@ -882,7 +882,6 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
         # --- YENİ SIRALI NUMARALANDIRMA İÇİN OFFSET HESAPLAMA ---
         global_offset = 0
         for i in range(self.current_page):
-            # Önceki sayfadaki tüm sütunlardaki soruları topla
             onceki_sayfa_sutunlari = self.sayfa_haritasi[i]
             global_offset += sum(len(sutun) for sutun in onceki_sayfa_sutunlari)
         
@@ -930,8 +929,9 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
         # --- YENİ GÖRSEL ALMA KISMI (SÜTUNLU HARİTADAN) ---
         bu_sayfanin_sutunlari = self.sayfa_haritasi[self.current_page]
 
-        # PDF sayfası önizlemesi oluştur
-        pdf_preview = self.create_page_preview(bu_sayfanin_sutunlari, global_offset)
+        # --- GÜNCELLEME: 'create_page_preview'e 'self.current_page' (indeks) gönder ---
+        # (Bu, 0'dan başlayan indekstir, 'sayfa_no' 1'den başlar)
+        pdf_preview = self.create_page_preview(bu_sayfanin_sutunlari, global_offset, self.current_page)
 
         if pdf_preview:
             pdf_label = tk.Label(
@@ -943,7 +943,6 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
             pdf_label.pack(expand=True, pady=5)
         else:
             error_text = "PDF önizlemesi oluşturulamadı"
-            # Sütunlardaki toplam soru sayısına bak
             total_questions_on_page = sum(len(col) for col in bu_sayfanin_sutunlari)
             if total_questions_on_page == 0:
                 error_text = "Bu sayfada soru yok."
@@ -957,7 +956,7 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
 
         # Sağ taraf kontroller
         self.create_controls_panel(controls_container, bu_sayfanin_sutunlari, pdf_container, global_offset)
-        
+             
     def _replan_and_refresh_ui(self):
         """
         'self.secilen_gorseller' listesi değiştiğinde (sil/güncelle) çağrılır.
@@ -976,7 +975,7 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
                 # 'planla_test_duzeni' artık SÜTUNLU harita üretiyor
                 self.sayfa_haritasi = pdf_planner.planla_test_duzeni() 
             else:
-                # Yazılı için basit planlama (SÜTUNLU formata uydur)
+                # --- YAZILI MODU İÇİN SÜTUNLU HARİTA OLUŞTURMA (DÜZELTİLDİ) ---
                 soru_listesi = [
                     {'index': i, 'path': path, 'total_height': 500, 'final_size': (500, 400)} # Tahmini boyut
                     for i, path in enumerate(self.secilen_gorseller)
@@ -985,7 +984,8 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
                 sayfa_listesi = []
                 for i in range(0, len(soru_listesi), 2): # Sayfa başına 2 soru
                     sayfa_sorulari = soru_listesi[i:i+2]
-                    sayfa_listesi.append([ sayfa_sorulari, [] ]) # [ [Soru1, Soru2], [] ]
+                    # [ [Soru1, Soru2], [] ] formatı:
+                    sayfa_listesi.append([ sayfa_sorulari, [] ]) 
                 self.sayfa_haritasi = sayfa_listesi
 
             # 2. Sayfa taşmasını engelle
@@ -1006,7 +1006,7 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
         
         except Exception as e:
             self.logger.error(f"Yeniden planlama ve UI yenileme hatası: {e}", exc_info=True)
-            
+           
     def refresh_pdf_preview_only(self, pdf_container):
         """SADECE sol PDF önizleme panelini yeniler (SÜTUNLU HARİTADAN OKUR + OFFSET HESAPLAR)"""
         try:
@@ -1071,8 +1071,8 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
             # --- YENİ GÖRSEL ALMA KISMI (SÜTUNLU HARİTADAN) ---
             bu_sayfanin_sutunlari = self.sayfa_haritasi[self.current_page]
 
-            # PDF sayfası önizlemesi oluştur (Offset ile)
-            pdf_preview = self.create_page_preview(bu_sayfanin_sutunlari, global_offset)
+            # --- GÜNCELLEME: 'create_page_preview'e 'self.current_page' (indeks) gönder ---
+            pdf_preview = self.create_page_preview(bu_sayfanin_sutunlari, global_offset, self.current_page)
 
             if pdf_preview:
                 pdf_label = tk.Label(
@@ -1097,7 +1097,8 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
 
         except Exception as e:
             self.logger.error(f"PDF önizleme yenileme hatası: {e}", exc_info=True)
-    
+            
+                   
     def create_controls_panel(self, controls_container, bu_sayfanin_sutunlari, pdf_container, global_offset):
         """
         Sağ kontrol panelini oluşturur.
@@ -1461,51 +1462,68 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
         soru_tipi = self.soru_tipi_var.get().lower()
         return 2 if soru_tipi == "yazili" else 8
 
-    def create_page_preview(self, bu_sayfanin_sutunlari, global_offset):
+    def create_page_preview(self, bu_sayfanin_sutunlari, global_offset, page_index):
         """
         Bir sayfa için PDF önizlemesi oluşturur.
-        ARTIK 'bu_sayfanin_sutunlari' (örn: [ [sol_liste], [sağ_liste] ]) alır.
+        GÜNCELLENDİ: 'page_index' (0'dan başlar) parametresi alır.
+        Başlığı SADECE 'page_index == 0' (ilk sayfa) ise çizer.
+        Şablonu SADECE 1. SAYFA için 'template.png'/'template2.png',
+        diğer sayfalar için 'template3.png'/'template4.png' olarak seçer.
         """
-        self.logger.debug(f"Sayfa önizlemesi oluşturuluyor - {sum(len(s) for s in bu_sayfanin_sutunlari)} görsel, offset: {global_offset}")
+        self.logger.debug(f"Sayfa önizlemesi oluşturuluyor - Sayfa İndeksi: {page_index}, Offset: {global_offset}")
 
         try:
             # Soru tipine göre şablon seç
             current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            templates_dir = os.path.join(current_dir, "templates")
             soru_tipi = self.soru_tipi_var.get().lower()
-            self.logger.debug(f"Şablon seçimi - Soru tipi: {soru_tipi}")
+            sayfa_no = page_index + 1 # 1'den başlayan sayfa no
+            
+            self.logger.debug(f"Şablon seçimi - Soru tipi: {soru_tipi}, Sayfa No: {sayfa_no}")
 
-            if soru_tipi == "test":
-                template_name = "template.png"
-            elif soru_tipi == "yazili":
-                template_name = "template2.png"
+            # --- YENİ DİNAMİK ŞABLON SEÇİMİ ---
+            if sayfa_no == 1:
+                # Sayfa 1: Başlıklı şablonlar
+                template_name = "template2.png" if soru_tipi == "yazili" else "template.png"
+                template_name_fallback = template_name
             else:
-                template_name = "template.png"
-
-            template_path = os.path.join(current_dir, "templates", template_name)
-
+                # Sayfa 2+: Başlıksız şablonlar
+                template_name = "template4.png" if soru_tipi == "yazili" else "template3.png"
+                # Fallback (eğer template3/4 yoksa, başlıklıyı kullan)
+                template_name_fallback = "template2.png" if soru_tipi == "yazili" else "template.png"
+            
+            template_path = os.path.join(templates_dir, template_name)
+            
+            # Şablonu kontrol et, yoksa fallback kullan
             if not os.path.exists(template_path):
-                self.logger.error(f"Şablon bulunamadı: {template_path}")
-                return None
+                self.logger.warning(f"Onizleme: Dinamik şablon '{template_name}' bulunamadı. Fallback '{template_name_fallback}' kullanılıyor.")
+                template_path = os.path.join(templates_dir, template_name_fallback)
+                
+                if not os.path.exists(template_path):
+                     self.logger.error(f"Fallback şablon '{template_name_fallback}' dahi bulunamadı!")
+                     return None
+            # --- DİNAMİK ŞABLON BİTTİ ---
 
             # Şablonu aç
             template = Image.open(template_path).convert("RGB")
             template_copy = template.copy()
-            self._draw_title_on_image(template_copy)
+            
+            # --- YENİ ADIM: BAŞLIĞI SADECE 1. SAYFADA (İNDEX 0) ÇİZ ---
+            if page_index == 0:
+                self._draw_title_on_image(template_copy)
+            # --- YENİ ADIM BİTTİ ---
+            
             self.logger.debug(f"Şablon yüklendi - Boyut: {template_copy.size}")
 
             # Soru tipine göre layout hesapla
             template_width, template_height = template_copy.size
             
-            # 'bu_sayfanin_sutunlari' listesini (örn: [ [sol_liste], [sağ_liste] ])
-            # ve 'global_offset'i aktar
             if soru_tipi == "yazili":
-                # Yazılı modu 1 sütunludur, bu yüzden sütunları düzleştirip gönder
                 sayfa_gorselleri_bilgileri_duz = []
                 for sutun in bu_sayfanin_sutunlari:
                     sayfa_gorselleri_bilgileri_duz.extend(sutun)
                 self._create_yazili_preview(template_copy, sayfa_gorselleri_bilgileri_duz, template_width, template_height, global_offset)
             else:
-                # --- NİZAM (GÖRSELLİK) ÇÖZÜMÜ BURADA ÇAĞRILIYOR ---
                 self._create_test_preview_BestFit(template_copy, bu_sayfanin_sutunlari, template_width, template_height, global_offset)
 
             # Önizleme için boyutlandır (oranı koru)
@@ -1521,9 +1539,9 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
         except Exception as e:
             self.logger.error(f"Sayfa önizleme hatası: {e}", exc_info=True)
             return None
-        
-    def _create_yazili_preview(self, sayfa_gorselleri_bilgileri_duz, template_width, template_height, global_offset):
-        """Yazılı şablonu önizleme layout'u (ARTIK DOĞRU SIRALI NUMARA)"""
+             
+    def _create_yazili_preview(self, template_copy, sayfa_gorselleri_bilgileri_duz, template_width, template_height, global_offset):
+        """Yazılı şablonu önizleme layout'u (ARTIK DOĞRU SIRALI NUMARA ve DOĞRU DEF SATIRI)"""
         self.logger.debug("Yazılı önizleme layout'u uygulanıyor")
         
         top_margin = int(template_height * 0.1)
@@ -1589,7 +1607,7 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
 
             except Exception as e:
                 self.logger.error(f"Yazılı soru {i+1} yerleştirme hatası: {e}", exc_info=True)
-                
+               
     def _create_test_preview_BestFit(self, template_copy, bu_sayfanin_sutunlari, template_width, template_height, global_offset):
         """
         Test şablonu önizleme layout'u (NİZAMİ GÖRÜNÜM + SIRALI NUMARA)
@@ -2073,14 +2091,19 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
                 # 'pdf_generator'dan gelen YENİ BEYİN fonksiyonunu çağır
                 self.sayfa_haritasi = pdf_planner.planla_test_duzeni()
             else:
-                # Yazılı modu için basit planlama (2'li gruplar)
-                # 'planla_test_duzeni'nin formatına benzetiyoruz
+                # --- YAZILI MODU İÇİN SÜTUNLU HARİTA OLUŞTURMA (DÜZELTİLDİ) ---
                 self.logger.info("Yazılı (basit) planlaması başlatılıyor...")
                 soru_listesi = [
-                    {'index': i, 'path': path, 'total_height': 500} # Yükseklik tahmini
+                    {'index': i, 'path': path, 'total_height': 500, 'final_size': (500, 400)} # Tahmini boyut
                     for i, path in enumerate(self.secilen_gorseller)
                 ]
-                self.sayfa_haritasi = [soru_listesi[i:i+2] for i in range(0, len(soru_listesi), 2)]
+                # Yazılı 1 sütunludur, bu yüzden [ [Sayfa1_Sutun1], [Boş_Sutun2] ] formatına getir
+                sayfa_listesi = []
+                for i in range(0, len(soru_listesi), 2): # Sayfa başına 2 soru
+                    sayfa_sorulari = soru_listesi[i:i+2]
+                    # [ [Soru1, Soru2], [] ] formatı:
+                    sayfa_listesi.append([ sayfa_sorulari, [] ]) 
+                self.sayfa_haritasi = sayfa_listesi
             # --- PLANLAMA BİTTİ ---
 
             if self.sayfa_haritasi:
@@ -2093,8 +2116,8 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
 
         except Exception as e:
             self.logger.error(f"Önizleme akışında hata: {e}", exc_info=True)
-            self.show_error(f"Önizleme oluşturulurken hata oluştu: {e}")
-            
+            self.show_error(f"Önizleme oluşturulurken hata oluştu: {e}")        
+    
     def update_total(self):
         """Toplam seçilen soru sayısını canlı güncelle"""
         try:
