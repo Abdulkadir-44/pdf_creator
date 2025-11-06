@@ -11,6 +11,5 @@ değil ondan dolayı burda kalsın şimdilik
 
 5-Önizleme ekranında silinen soru ,soruları güncellediğimde tekrardan geliyor (Çok denedim böyle bir problem göremedim)
 
-6-Cevap anahtarı hala json dosyasından okunuyor
 
-7- (opsiyonel) - cevap anahtarı optiğe yazılabilir mi ?
+6- (opsiyonel) - cevap anahtarı optiğe yazılabilir mi ?

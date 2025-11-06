@@ -653,13 +653,15 @@ class PDFCreator:
             logger.info(f"Cevap anahtari sayfasi olusturuluyor ({len(self.cevap_listesi)} cevap) - Tip: {self.soru_tipi}")
             
             if self.soru_tipi.lower() == "yazili":
+                # Yazılı ise eski düz metin listesini kullan
                 self._create_yazili_answer_key(canvas_obj)
             else:
-                self._create_test_answer_key(canvas_obj)
+                # Test ise YENİ optik formu kullan
+                self._create_optik_cevap_anahtari(canvas_obj)
                 
         except Exception as e:
             logger.error(f"Cevap anahtari olusturma hatasi", exc_info=True)
-
+        
     def _create_test_answer_key(self, canvas_obj):
         """Test şablonu için 2 sütunlu cevap anahtarı"""
         page_width, page_height = A4
@@ -762,6 +764,109 @@ class PDFCreator:
                 canvas_obj.showPage()
         logger.info("Yazılı cevap anahtari sayfasi tamamlandi")
 
+    def _create_optik_cevap_anahtari(self, canvas_obj):
+        """
+        'BOŞ OPTİK.pdf' şablonuna göre cevap anahtarını karalar.
+        GÜNCELLENDİ: Artık 12'şerli "Blok" yapısını (1-12, 13-24, 25-36, 37-48) tanır.
+        GÜNCELLENDİ: Dikey "Kayma" sorununu çözmek için koordinatlar hassaslaştırıldı.
+        """
+        logger.info("Optik form cevap anahtarı oluşturuluyor (Bloklu Sistem)...")
+        
+        try:
+            # --- 1. ŞABLONU BUL VE ÇİZ ---
+            current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            # (Senin 'optik_form.jpg' dosya adına göre ayarlandı)
+            optik_form_path = os.path.join(current_dir, "templates", "optik_form.jpg") 
+            
+            if not os.path.exists(optik_form_path):
+                logger.error("Optik form şablonu 'templates/optik_form.jpg' bulunamadı.")
+                return self._create_test_answer_key(canvas_obj)
+                
+            page_width, page_height = A4
+            canvas_obj.drawImage(optik_form_path, 0, 0, width=page_width, height=page_height)
+
+            # --- 2. HESAPLANMIŞ "PİKSEL AVCILIĞI" SABİTLERİ (pt cinsinden) ---
+            # Senin 960x1289 resmine göre A4 (595x842) için HASSAS hesaplanmış değerler
+            
+            # --- BLOK BAŞLANGIÇ KOORDİNATLARI (HER ZAMAN "A" ŞIKKI) ---
+            # Blok 1 (Soru 1)
+            X_BLOK_1_12 = 94.09   # Paint X: 152
+            Y_BLOK_1_12 = 728.82  # Paint Y: 173 (Hesap: 841.89 - (173/1289) * 841.89)
+            
+            # Blok 2 (Soru 13)
+            X_BLOK_13_24 = 94.09  # Paint X: 152
+            Y_BLOK_13_24 = 373.10 # Paint Y: 718
+            
+            # Blok 3 (Soru 25)
+            X_BLOK_25_36 = 214.20 # Paint X: 346
+            Y_BLOK_25_36 = 728.82 # Paint Y: 173
+            
+            # Blok 4 (Soru 37)
+            X_BLOK_37_48 = 213.58 # Paint X: 345 (Hafif kayık, 346 değil)
+            Y_BLOK_37_48 = 373.10 # Paint Y: 718
+            
+            # Blok 5 (Soru 49)
+            X_BLOK_49_60 = 334.26 # Paint X: 540
+            Y_BLOK_49_60 = 728.82 # Paint Y: 173
+
+            # --- Aralıklar (Offsetler) ---
+            YATAY_SIK_ARALIGI_X = 19.75  # Paint X: 182-152=30
+            DIKEY_SORU_ARALIGI_Y = 27.29 # Paint Y: 216-173=43 (Kaymayı düzelten hassas değer)
+            DAIRE_YARICAPI_R = 5.57     # Paint R: 9
+            
+            # --- 3. HARİTALAMA VE ÇİZİM MANTIĞI ---
+            cevap_harita = {'A': 0, 'B': 1, 'C': 2, 'D': 3, 'E': 4}
+            canvas_obj.setFillColorRGB(0, 0, 0) # Karalamak için Siyah renk
+
+            for i, cevap in enumerate(self.cevap_listesi):
+                soru_no = i + 1 # 1'den başlayan soru no
+                cevap_str = str(cevap).upper()
+                
+                cevap_indexi = cevap_harita.get(cevap_str, -1)
+                if cevap_indexi == -1:
+                    logger.warning(f"Optik form: Soru {soru_no} için geçersiz cevap '{cevap}', atlanıyor.")
+                    continue 
+
+                # Hangi BLOK'ta olduğumuzu bul
+                if 1 <= soru_no <= 12:
+                    base_x = X_BLOK_1_12
+                    base_y = Y_BLOK_1_12
+                    blok_soru_indexi = i # 0'dan 11'e
+                elif 13 <= soru_no <= 24:
+                    base_x = X_BLOK_13_24
+                    base_y = Y_BLOK_13_24
+                    blok_soru_indexi = i - 12 # 0'dan 11'e
+                elif 25 <= soru_no <= 36:
+                    base_x = X_BLOK_25_36
+                    base_y = Y_BLOK_25_36
+                    blok_soru_indexi = i - 24 # 0'dan 11'e
+                elif 37 <= soru_no <= 48:
+                    base_x = X_BLOK_37_48
+                    base_y = Y_BLOK_37_48
+                    blok_soru_indexi = i - 36 # 0'dan 11'e
+                elif 49 <= soru_no <= 60:
+                    base_x = X_BLOK_49_60
+                    base_y = Y_BLOK_49_60
+                    blok_soru_indexi = i - 48 # 0'dan 11'e
+                else:
+                    logger.warning(f"Soru no {soru_no} optik form aralığı (1-60) dışındadır.")
+                    continue 
+
+                # Doğru dairenin koordinatını HESAPLA
+                x_pos = base_x + (cevap_indexi * YATAY_SIK_ARALIGI_X)
+                y_pos = base_y - (blok_soru_indexi * DIKEY_SORU_ARALIGI_Y)
+                
+                # O koordinata dolu bir daire çiz
+                canvas_obj.circle(x_pos, y_pos, DAIRE_YARICAPI_R, fill=1, stroke=0)
+            
+            logger.info("Optik form cevap anahtarı (Bloklu Sistem) başarıyla çizildi.")
+
+        except Exception as e:
+            logger.error(f"Optik cevap anahtarı oluşturma hatası: {e}", exc_info=True)
+            # Optik form bozulursa, eski düz listeyi çiz
+            logger.warning("Optik form hatası nedeniyle eski tip cevap anahtarına geçiliyor.")
+            self._create_test_answer_key(canvas_obj)
+                   
     def _basit_pdf_olustur(self, dosya_yolu):
         """Sablon bulunamazsa basit PDF olustur"""
         try:
