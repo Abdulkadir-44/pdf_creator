@@ -976,15 +976,16 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
                 self.sayfa_haritasi = pdf_planner.planla_test_duzeni() 
             else:
                 # --- YAZILI MODU İÇİN SÜTUNLU HARİTA OLUŞTURMA (DÜZELTİLDİ) ---
-                soru_listesi = [
-                    {'index': i, 'path': path, 'total_height': 500, 'final_size': (500, 400)} # Tahmini boyut
-                    for i, path in enumerate(self.secilen_gorseller)
-                ]
-                # Yazılı 1 sütunludur, bu yüzden [ [Sayfa1_Sutun1], [Boş_Sutun2] ] formatına getir
+                soru_listesi = []
+                for i, path in enumerate(self.secilen_gorseller):
+                    soru_listesi.append({
+                        'index': i, 'path': path, 'total_height': 500, 
+                        'final_size': (500, 400) # Tahmini boyut
+                    })
+                
                 sayfa_listesi = []
                 for i in range(0, len(soru_listesi), 2): # Sayfa başına 2 soru
                     sayfa_sorulari = soru_listesi[i:i+2]
-                    # [ [Soru1, Soru2], [] ] formatı:
                     sayfa_listesi.append([ sayfa_sorulari, [] ]) 
                 self.sayfa_haritasi = sayfa_listesi
 
@@ -1006,7 +1007,7 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
         
         except Exception as e:
             self.logger.error(f"Yeniden planlama ve UI yenileme hatası: {e}", exc_info=True)
-           
+                  
     def refresh_pdf_preview_only(self, pdf_container):
         """SADECE sol PDF önizleme panelini yeniler (SÜTUNLU HARİTADAN OKUR + OFFSET HESAPLAR)"""
         try:
@@ -1522,9 +1523,11 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
                 sayfa_gorselleri_bilgileri_duz = []
                 for sutun in bu_sayfanin_sutunlari:
                     sayfa_gorselleri_bilgileri_duz.extend(sutun)
-                self._create_yazili_preview(template_copy, sayfa_gorselleri_bilgileri_duz, template_width, template_height, global_offset)
+                # 'page_index'i de aktar (Dinamik Boşluk için)
+                self._create_yazili_preview(template_copy, sayfa_gorselleri_bilgileri_duz, template_width, template_height, global_offset, page_index)
             else:
-                self._create_test_preview_BestFit(template_copy, bu_sayfanin_sutunlari, template_width, template_height, global_offset)
+                # 'page_index'i de aktar (Dinamik Boşluk için)
+                self._create_test_preview_BestFit(template_copy, bu_sayfanin_sutunlari, template_width, template_height, global_offset, page_index)
 
             # Önizleme için boyutlandır (oranı koru)
             preview_width = 600
@@ -1539,17 +1542,32 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
         except Exception as e:
             self.logger.error(f"Sayfa önizleme hatası: {e}", exc_info=True)
             return None
-             
-    def _create_yazili_preview(self, template_copy, sayfa_gorselleri_bilgileri_duz, template_width, template_height, global_offset):
-        """Yazılı şablonu önizleme layout'u (ARTIK DOĞRU SIRALI NUMARA ve DOĞRU DEF SATIRI)"""
+                
+    def _create_yazili_preview(self, template_copy, sayfa_gorselleri_bilgileri_duz, template_width, template_height, global_offset, page_index):
+        """
+        Yazılı şablonu önizleme layout'u
+        GÜNCELLENDİ: 'page_index'e göre dinamik 'top_margin' kullanır (Boşluk sorunu çözümü).
+        GÜNCELLENDİ: 'draw.text' X pozisyonu 'paste_x' (resim kenarı) DEĞİL, 'x_sol_kenar' (sayfa kenarı) kullanır (Numara hizalama çözümü).
+        GÜNCELLENDİ: Font boyutu 24pt, Renk Siyah (Stil çözümü).
+        GÜNCELLENDİ: Çift haneli sayılar için X pozisyonu ayarlandı (İç içe girme sorunu çözümü).
+        """
         self.logger.debug("Yazılı önizleme layout'u uygulanıyor")
         
-        top_margin = int(template_height * 0.1)
+        # --- 1. DİNAMİK BOŞLUK ÇÖZÜMÜ ---
+        A4_H = 841.89
+        scale_factor = template_height / A4_H
+        
+        if page_index == 0:
+            top_margin_pixel = 50 * scale_factor # Başlıklı (50pt)
+        else:
+            top_margin_pixel = 35 * scale_factor # Başlıksız (35pt)
+        
         left_margin = int(template_width * 0.05)
         right_margin = int(template_width * 0.05)
         bottom_margin = int(template_height * 0.05)
+        
         usable_width = template_width - left_margin - right_margin
-        usable_height = template_height - top_margin - bottom_margin
+        usable_height = template_height - top_margin_pixel - bottom_margin
         
         max_soru = 2 # Yazılı için 2 soru
         soru_ve_cevap_yuksekligi = usable_height // max_soru 
@@ -1566,15 +1584,13 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
                 
             try:
                 gorsel_path = soru_info['path']
-                # <<< SIRALI NUMARA ÇÖZÜMÜ >>>
                 soru_no = global_offset + i + 1
                 
-                x = left_margin
-                y = top_margin + i * soru_ve_cevap_yuksekligi
+                x_sol_kenar = left_margin
+                y_tavan = top_margin_pixel + i * soru_ve_cevap_yuksekligi
 
                 soru_img = Image.open(gorsel_path)
                 
-                # Oranı koruyarak sığdır
                 img_ratio = soru_img.width / soru_img.height
                 final_width = yazili_soru_width
                 final_height = int(final_width / img_ratio)
@@ -1583,36 +1599,47 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
                     final_height = yazili_soru_height
                     final_width = int(final_height * img_ratio)
                 
-                # Sığdırılan resmi ortala
-                paste_x = x + (yazili_soru_width - final_width) // 2
+                # Sığdırılan resmin X (yatay) başlangıç noktasını hesapla
+                paste_x = x_sol_kenar + (yazili_soru_width - final_width) // 2
                 
                 resampling_filter = Image.Resampling.LANCZOS if hasattr(Image.Resampling, "LANCZOS") else Image.ANTIALIAS
                 soru_img = soru_img.resize((final_width, final_height), resampling_filter)
-                template_copy.paste(soru_img, (int(paste_x), int(y)))
+                template_copy.paste(soru_img, (int(paste_x), int(y_tavan)))
 
-                # Soru numarası ekle (ARTIK 'soru_no' DOĞRU)
                 draw = ImageDraw.Draw(template_copy)
+                
+                # --- 2. STİL GÜNCELLEMESİ (BOYUT) ---
                 try:
-                    font = ImageFont.truetype("arialbd.ttf", 30) # Biraz daha büyük
+                    font = ImageFont.truetype("arialbd.ttf", 24) 
                 except:
                     try:
-                        font = ImageFont.truetype("arial.ttf", 30)
+                        font = ImageFont.truetype("arial.ttf", 24)
                     except:
                         font = ImageFont.load_default()
 
-                # Numarayı sol üste (sorunun değil, alanın sol üstüne) koy
-                draw.text((x, y), f"{soru_no}.", fill="#333333", font=font)
+                # --- 3. STİL GÜNCELLEMESİ (HİZALAMA ve RENK) ---
+                
+                # --- ÇİFT HANE SORUNU ÇÖZÜMÜ ---
+                # Numarayı 'x_sol_kenar'a (sayfa kenarı) çiz.
+                numara_x = x_sol_kenar
+                if soru_no >= 10:
+                    # Eğer sayı 10 veya üstüyse, '24pt' fontun yaklaşık yarısı kadar
+                    # (10-12 piksel) sola kaydır ki '0' rakamı metne girmesin.
+                    numara_x -= (12 * scale_factor) 
+                # --- BİTTİ ---
+                
+                draw.text((numara_x, y_tavan), f"{soru_no}.", fill="#000000", font=font)
                 
                 self.logger.debug(f"Yazılı soru {soru_no} yerleştirildi - Boyut: {final_width}x{final_height}")
 
             except Exception as e:
                 self.logger.error(f"Yazılı soru {i+1} yerleştirme hatası: {e}", exc_info=True)
-               
-    def _create_test_preview_BestFit(self, template_copy, bu_sayfanin_sutunlari, template_width, template_height, global_offset):
+                            
+    def _create_test_preview_BestFit(self, template_copy, bu_sayfanin_sutunlari, template_width, template_height, global_offset, page_index):
         """
         Test şablonu önizleme layout'u (NİZAMİ GÖRÜNÜM + SIRALI NUMARA)
-        'planla_test_duzeni'nden gelen SÜTUNLU haritayı okur ve çizer.
-        HATASIZ VERSİYON.
+        GÜNCELLENDİ: 'page_index' parametresi aldı.
+        GÜNCELLENDİ: 'page_index'e göre dinamik 'top_margin' kullanır.
         """
         self.logger.debug(f"Test önizleme (BestFit NİZAMİ) layout'u uygulanıyor - {sum(len(s) for s in bu_sayfanin_sutunlari)} soru")
 
@@ -1622,15 +1649,20 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
         
         scale_factor = template_H / A4_H 
         
-        top_margin = 50 * scale_factor
+        # --- DİNAMİK BOŞLUK HESAPLAMASI (PIL BAZLI) ---
+        if page_index == 0:
+            top_margin = 50 * scale_factor # Başlıklı (50pt'den ölçekli)
+        else:
+            top_margin = 35 * scale_factor # Başlıksız (35pt'den ölçekli)
+        # --- BİTTİ ---
+
         bottom_margin = 5 * scale_factor
         left_margin = 20 * scale_factor
         right_margin = 20 * scale_factor
         col_gap = 40 * scale_factor
         cols = 2
         
-        # --- NUMARA BOYUTU DÜZELTMESİ ---
-        soru_numara_font_size = int(12 * scale_factor) # 16'dan 12'ye düşürüldü
+        soru_numara_font_size = int(12 * scale_factor) # (Küçük font)
         
         soru_spacing = 8 * scale_factor
         image_spacing = 10 * scale_factor
@@ -1639,10 +1671,10 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
         
         current_x_positions = [left_margin + i * (col_width + col_gap) for i in range(cols)]
         
-        # PIL (0,0 sol üst) mantığıyla Y (dikey) pozisyonları (Tepeden başlar)
+        # PIL (0,0 sol üst) mantığıyla Y (dikey) pozisyonları (Dinamik tepeden başlar)
         current_y_positions_tepe = [top_margin for _ in range(cols)] 
 
-        yerlestirildi_sayaci = 0 # Bu, 'global_offset'e eklenecek sıralı sayaçtır
+        yerlestirildi_sayaci = 0 
         
         draw = ImageDraw.Draw(template_copy)
         try:
@@ -1689,7 +1721,7 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
                 yerlestirildi_sayaci += 1
                 
         self.logger.info(f"Test önizleme (BestFit NİZAMİ) tamamlandi - {yerlestirildi_sayaci} soru yerlestirildi")
-                   
+                      
     def geri_don(self):
         """Soru parametre seçim ekranına geri dön"""
         try:
@@ -2093,10 +2125,16 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
             else:
                 # --- YAZILI MODU İÇİN SÜTUNLU HARİTA OLUŞTURMA (DÜZELTİLDİ) ---
                 self.logger.info("Yazılı (basit) planlaması başlatılıyor...")
-                soru_listesi = [
-                    {'index': i, 'path': path, 'total_height': 500, 'final_size': (500, 400)} # Tahmini boyut
-                    for i, path in enumerate(self.secilen_gorseller)
-                ]
+                
+                # 'planla_test_duzeni'nin (Test) ürettiği formatta soru bilgisi hazırla
+                soru_listesi = []
+                for i, path in enumerate(self.secilen_gorseller):
+                    # Yazılı için 'final_size' vs. gerekmez, ama formatı aynı tutalım
+                    soru_listesi.append({
+                        'index': i, 'path': path, 'total_height': 500, 
+                        'final_size': (500, 400) # Tahmini boyut
+                    })
+
                 # Yazılı 1 sütunludur, bu yüzden [ [Sayfa1_Sutun1], [Boş_Sutun2] ] formatına getir
                 sayfa_listesi = []
                 for i in range(0, len(soru_listesi), 2): # Sayfa başına 2 soru
@@ -2116,8 +2154,8 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
 
         except Exception as e:
             self.logger.error(f"Önizleme akışında hata: {e}", exc_info=True)
-            self.show_error(f"Önizleme oluşturulurken hata oluştu: {e}")        
-    
+            self.show_error(f"Önizleme oluşturulurken hata oluştu: {e}")
+                    
     def update_total(self):
         """Toplam seçilen soru sayısını canlı güncelle"""
         try:

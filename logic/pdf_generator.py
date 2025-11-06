@@ -71,22 +71,19 @@ class PDFCreator:
     
     def planla_test_duzeni(self):
         """
-        'kaydet' ve '_create_working_test_layout' mantığını SİMÜLE EDER.
-        ARTIK HANGİ SÜTUNA GİDECEĞİNİ DE HESAPLAR.
-
-        DÖNÜŞ YAPISI (ÇOK ÖNEMLİ):
-        [
-            [ [Sayfa1_Sutun1_Sorulari], [Sayfa1_Sutun2_Sorulari] ],
-            [ [Sayfa2_Sutun1_Sorulari], [Sayfa2_Sutun2_Sorulari] ]
-        ]
-        
-        Soru Formatı: {'index': 0, 'path': '...', 'total_height': 120, ...}
+        GÜNCELLENDİ (Dinamik Boşluk):
+        Artık Sayfa 1 için farklı (daha büyük) 'top_margin',
+        diğer sayfalar için farklı (daha küçük) 'top_margin' hesaplar.
         """
-        logger.info(f"BestFit DÜZEN PLANLAMASI (Sütunlu) başlıyor - {len(self.gorsel_listesi)} soru")
+        logger.info(f"BestFit DÜZEN PLANLAMASI (Sütunlu + Dinamik Boşluk) başlıyor - {len(self.gorsel_listesi)} soru")
 
         # --- 1. Gerekli Sabitleri Al ---
         page_width, page_height = A4
-        top_margin = 50
+        
+        # MARJİN SABİTLERİ (Dinamik olarak kullanılacak)
+        TOP_MARGIN_SAYFA_1 = 50 # Başlıklı sayfa boşluğu (Senin dosyadaki değer)
+        TOP_MARGIN_DIGER = 35   # Başlıksız sayfa boşluğu (Daha az boşluk)
+        
         bottom_margin = 5
         left_margin = 20
         right_margin = 20
@@ -98,7 +95,7 @@ class PDFCreator:
 
         usable_width = page_width - left_margin - right_margin
         col_width = (usable_width - col_gap) / cols
-        usable_height = page_height - top_margin - bottom_margin
+        # usable_height artık DİNAMİK
 
         # --- 2. TÜM Soruları BİR KERE Analiz Et ---
         tum_soru_analizi = []
@@ -113,7 +110,7 @@ class PDFCreator:
                     total_height = final_height + soru_spacing + image_spacing
                     
                     soru_info = {
-                        'index': i, # <-- Global indis
+                        'index': i, 
                         'path': gorsel_path,
                         'total_height': total_height,
                         'final_size': (final_width, final_height)
@@ -124,34 +121,35 @@ class PDFCreator:
                 tum_soru_analizi.append({
                     'index': i,
                     'path': gorsel_path,
-                    'total_height': 300, # Varsayılan orta boy
+                    'total_height': 300, 
                     'final_size': (col_width * 0.98, 250)
                 })
 
-        # --- 3. 'kaydet' ve 'BestFit' Simülasyonu (SÜTUN BİLGİSİYLE) ---
+        # --- 3. 'BestFit' Simülasyonu (Dinamik Boşlukla) ---
         sayfa_haritasi = []
         kullanilan_global_indices = set()
         toplam_soru_sayisi = len(self.gorsel_listesi)
+        
+        sayfa_no = 1 # Sayfa sayacını başlat
 
         while len(kullanilan_global_indices) < toplam_soru_sayisi:
             
-            # YENİ YAPI: Bu sayfa, sütun listeleri içerir
-            # Örn: [ [SoruA, SoruC], [SoruB, SoruD] ]
+            # --- DİNAMİK BOŞLUK HESAPLAMASI (Loop içinde) ---
+            current_top_margin = TOP_MARGIN_SAYFA_1 if sayfa_no == 1 else TOP_MARGIN_DIGER
+            usable_height = page_height - current_top_margin - bottom_margin
+            
             bu_sayfa_sutunlari = [[] for _ in range(cols)] 
             
-            # PDF (Reportlab) Y ekseni aşağıdan yukarıyadır (0,0 sol alttadır)
-            # Biz de o mantığı taklit ediyoruz
-            current_y_positions = [page_height - top_margin for _ in range(cols)] 
+            # Y pozisyonları (Dipten Yukarı) HESAPLAMASI (Loop içinde)
+            current_y_positions = [page_height - current_top_margin for _ in range(cols)] 
 
             for sutun_index in range(cols):
                 while True:
-                    # Kalan boşluk = Mevcut Y (Dipten) - Tavan (Tepeden)
-                    kalan_bosluk = current_y_positions[sutun_index] - (top_margin)
+                    kalan_bosluk = current_y_positions[sutun_index] - (current_top_margin)
                     
                     if kalan_bosluk < 50: # Minimum sığma payı
                         break
 
-                    # Uygun (henüz kullanılmamış VE boşluğa sığan) soruları bul
                     uygun_sorular = []
                     for soru in tum_soru_analizi:
                         if soru['index'] not in kullanilan_global_indices:
@@ -159,31 +157,27 @@ class PDFCreator:
                                 uygun_sorular.append(soru)
 
                     if not uygun_sorular:
-                        break # Bu sütuna sığacak başka soru kalmadı
+                        break 
 
-                    # BestFit Algoritması: Kalan boşluğu en aza indiren soruyu seç
                     secilen_soru = min(uygun_sorular, key=lambda s: (kalan_bosluk - s['total_height']))
                     
-                    # YENİ: Soruyu doğru SÜTUN listesine ekle
                     bu_sayfa_sutunlari[sutun_index].append(secilen_soru)
-                    
                     kullanilan_global_indices.add(secilen_soru['index'])
-                    
-                    # Y pozisyonunu güncelle (Dipten yukarı mantıkta Y azalır)
                     current_y_positions[sutun_index] -= (secilen_soru['total_height'] + image_spacing)
 
-            # Sayfaya hiç soru yerleşmemişse (sonsuz döngü)
             total_placed_this_page = sum(len(col) for col in bu_sayfa_sutunlari)
             if total_placed_this_page == 0 and len(kullanilan_global_indices) < toplam_soru_sayisi:
                 logger.error("PLANLAMA - Sonsuz döngü tespit edildi! Kalan sorular sığmıyor.")
-                break # Döngüyü kır
+                break 
             
-            # Sadece dolu sayfaları ekle
             if total_placed_this_page > 0:
-                 sayfa_haritasi.append(bu_sayfa_sutunlari) # Sayfaya [col1_list, col2_list] ekle
+                 sayfa_haritasi.append(bu_sayfa_sutunlari)
 
-        logger.info(f"PLANLAMA (Sütunlu) tamamlandı. {len(sayfa_haritasi)} sayfa oluşturulacak.")
-        return sayfa_haritasi # Yeni format: [ [[col1], [col2]], [[col1], [col2]] ]
+            sayfa_no += 1 # Bir sonraki sayfa için sayacı artır
+
+        logger.info(f"PLANLAMA (Sütunlu+Dinamik) tamamlandı. {len(sayfa_haritasi)} sayfa oluşturulacak.")
+        return sayfa_haritasi
+     
     def cevap_anahtari_ekle(self, cevaplar):
         """Cevap listesini ayarla"""
         self.cevap_listesi = cevaplar
@@ -376,15 +370,23 @@ class PDFCreator:
             logger.error(f"Sayfa {sayfa_no} olusturma hatasi", exc_info=True)
             return 0
 
-    def _create_working_test_layout(self, canvas_obj, bu_sayfa_sutunlari, sayfa_no, page_width, page_height, global_offset):
+    def _create_working_test_layout(self, canvas_obj, bu_sayfanin_sutunlari, sayfa_no, page_width, page_height, global_offset):
         """
-        GÜNCELLENDİ: Artık 'BestFit' HESAPLAMAZ.
+        GÜNCELLENDİ (TEK BEYİN):
+        Artık 'BestFit' HESAPLAMAZ.
         'planla_test_duzeni'nden gelen HAZIR SÜTUNLU PLANI alır ve çizer.
         """
-        logger.info(f"PDF Sayfa {sayfa_no} çiziliyor (Hazır Plana Göre) - {sum(len(s) for s in bu_sayfa_sutunlari)} soru")
+        logger.info(f"PDF Sayfa {sayfa_no} çiziliyor (Hazır Plana Göre) - {sum(len(s) for s in bu_sayfanin_sutunlari)} soru")
         
-        # --- PDF GENERATOR SABİTLERİ ---
-        top_margin = 50
+        # --- PDF GENERATOR SABİTLERİ (DİNAMİK) ---
+        
+        # --- DİNAMİK BOŞLUK HESAPLAMASI ---
+        if sayfa_no == 1:
+            top_margin = 50 # Başlıklı sayfa boşluğu (Senin dosyadaki değer)
+        else:
+            top_margin = 35 # Başlıksız sayfa boşluğu (Daha az boşluk)
+        # --- BİTTİ ---
+            
         bottom_margin = 5
         left_margin = 20
         right_margin = 20
@@ -397,26 +399,19 @@ class PDFCreator:
         usable_width = page_width - left_margin - right_margin
         col_width = (usable_width - col_gap) / cols
         
-        # Y ekseni DİPTEN YUKARI (0,0 sol alt)
+        # Y ekseni DİPTEN YUKARI (Dinamik top_margin'e göre)
         current_y_positions_dip = [page_height - top_margin for _ in range(cols)]
         current_x_positions = [left_margin + i * (col_width + col_gap) for i in range(cols)]
 
         yerlestirildi_sayisi = 0 # Sıralı numara için
 
         for sutun_index in range(cols):
-            sutun_sorulari = bu_sayfa_sutunlari[sutun_index]
+            sutun_sorulari = bu_sayfanin_sutunlari[sutun_index]
             img_x = current_x_positions[sutun_index]
             
             for soru_info in sutun_sorulari:
                 
                 img_w, img_h = soru_info['final_size'] # Plandan gelen (pt cinsinden)
-                
-                # Reportlab Y ekseni (Dipten Yukarı)
-                # 'drawImage' (x, y) koordinatını sol alt köşe olarak bekler
-                # Düzeltme: Hayır, (x, y) sol üst köşe bekler (genellikle)
-                # Reportlab dökümanı: "The user space coordinate (x,y) specifies the top-left corner of the image."
-                # HAYIR, döküman diyor ki: "The coordinate (x,y) specifies the bottom-left corner"
-                # Tamam, (x, y) = Sol Alt Köşe.
                 
                 pdf_y_bottom = current_y_positions_dip[sutun_index] - img_h
                 
@@ -567,15 +562,26 @@ class PDFCreator:
             return False
          
     def _create_yazili_layout_simple(self, canvas_obj, gorseller, sayfa_no, page_width, page_height, global_offset):
-        """Yazılı için basit layout - sayfa başına maksimum 2 soru"""
+        """
+        Yazılı için basit layout - sayfa başına maksimum 2 soru
+        GÜNCELLENDİ: 'sayfa_no'ya göre dinamik 'top_margin' kullanır (Boşluk sorunu çözümü).
+        GÜNCELLENDİ: 'drawString' X pozisyonu 'img_x' (resim kenarı) DEĞİL, 'left_margin' (sayfa kenarı) kullanır (Numara hizalama çözümü).
+        GÜNCELLENDİ: Renk siyah, font boyutu küçültüldü (Stil çözümü).
+        GÜNCELLENDİ: Çift haneli sayılar için X pozisyonu ayarlandı (İç içe girme sorunu çözümü).
+        """
         logger.info(f"Yazılı basit layout - Sayfa {sayfa_no}, {len(gorseller)} soru")
         max_soru_sayisi = min(len(gorseller), 2)
 
-        top_margin = page_height * 0.12
+        # --- 1. DİNAMİK BOŞLUK ÇÖZÜMÜ (PDF/ReportLab pt) ---
+        if sayfa_no == 1:
+            top_margin = 50 # Başlıklı (50pt - senin ayarın)
+        else:
+            top_margin = 35 # Başlıksız (35pt - daha az boşluk)
+
         left_margin = page_width * 0.05
         right_margin = page_width * 0.05
         bottom_margin = page_height * 0.08
-
+        
         usable_width = page_width - left_margin - right_margin
         usable_height = page_height - top_margin - bottom_margin
 
@@ -587,12 +593,13 @@ class PDFCreator:
                 break
             try:
                 gorsel_path = gorseller[i]
-                soru_start_y = top_margin + i * soru_area_height
+                soru_start_y = top_margin + i * soru_area_height # Tepeden DİNAMİK boşluk
+                
                 with PILImage.open(gorsel_path) as img:
                     original_width, original_height = img.width, img.height
                     img_ratio = original_width / original_height
                     max_img_width = usable_width * 0.95
-                    max_img_height = soru_area_height * 0.8
+                    max_img_height = soru_area_height * 0.8 # Soru alanı
 
                     if img_ratio > (max_img_width / max_img_height):
                         final_width = max_img_width
@@ -601,20 +608,45 @@ class PDFCreator:
                         final_height = max_img_height
                         final_width = max_img_height * img_ratio
 
+                    # Ortalanmış X pozisyonu
                     img_x = left_margin + (usable_width - final_width) / 2
-                    img_y = page_height - soru_start_y - final_height - 20
-                    canvas_obj.drawImage(gorsel_path, img_x, img_y, width=final_width, height=final_height)
+                    
+                    # Y pozisyonu (ReportLab: Dipten Yukarı)
+                    img_y_sol_alt = (page_height - soru_start_y) - final_height
+                    
+                    canvas_obj.drawImage(gorsel_path, img_x, img_y_sol_alt, width=final_width, height=final_height)
 
                     soru_no = global_offset + i + 1
-                    canvas_obj.setFont("Helvetica-Bold", 16)
-                    canvas_obj.setFillColor("#666666")
-                    canvas_obj.drawString(left_margin - 10, img_y + final_height - 25, f"{soru_no}.")
+                    
+                    # --- 2. STİL GÜNCELLEMESİ (BOYUT VE RENK) ---
+                    # ESKİ: canvas_obj.setFont("Helvetica-Bold", 16)
+                    # YENİ: Daha küçük font
+                    canvas_obj.setFont("Helvetica-Bold", 14) 
+                    
+                    # ESKİ: canvas_obj.setFillColor("#666666")
+                    # YENİ: Siyah renk
+                    canvas_obj.setFillColorRGB(0, 0, 0)
+                    
+                    # --- 3. STİL GÜNCELLEMESİ (HİZALAMA) ---
+                    
+                    # --- ÇİFT HANE SORUNU ÇÖZÜMÜ ---
+                    # Numarayı 'left_margin' (sayfa kenarı) koordinatına çiz.
+                    numara_x = left_margin
+                    if soru_no >= 10:
+                        # Eğer sayı 10 veya üstüyse, '14pt' fontun genişliği kadar
+                        # (yaklaşık 7-8pt) sola kaydır ki '0' rakamı metne girmesin.
+                        numara_x -= 8 
+                    # --- BİTTİ ---
+                    
+                    numara_y_tepe = (img_y_sol_alt - 10) + final_height
+                    canvas_obj.drawString(numara_x, numara_y_tepe, f"{soru_no}.")
+                    
                     yerlestirildi_sayisi += 1
                     logger.info(f"✅ Yazılı soru {soru_no} yerleştirildi")
             except Exception as e:
                 logger.error(f"❌ Yazılı soru {i+1} yerleştirme hatası", exc_info=True)
         return yerlestirildi_sayisi
-
+    
     def create_answer_key_page(self, canvas_obj):
         """Cevap anahtari sayfasi olustur - Soru tipine göre farklı düzenler"""
         try:
