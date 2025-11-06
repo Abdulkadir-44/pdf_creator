@@ -1,0 +1,14 @@
+1-Klasör seçim ekrnaında çok büyük klasörler seçince örneğin masaüstü uygulama çöktü
+2-Klasör seçim ekranında detay paneli yazılı detaylarını göstermiyor,yani bir konuya tıklayınca konunun içindeki
+test/yazılı detaylarından test'i gösteriyor ama yazılıyı göstermiyor
+3-Soru parametrelerini seçtiğimiz ekranda  çıkan dialog kutusunun içi çok uzunsa kutunun içinde bulunan tamam 
+butonu çok küçülüyor
+4-Konu başlığı seçimi ekranında arama kutusundaki öğeyle eşleşen klasör yoksa bir yazı çıkmıyor sadece boşluk
+var
+5-Önizleme ekranında sorular seçili geliyor ama havuz dolduğunda seçili sorular değişiyor
+6-Önizleme ekranında silinen soru ,soruları güncellediğimde tekrardan geliyor
+7-Yazılı şablonunda hata alıyorum önizleme ekranı oluşmuyor
+8-Cevap anahtarı hala json dosyasından okunuyor
+9-En son problem ise test şablonunda başlık eklenmiyor ( + halledildi )
+
+10(opsiyonel) - cevap anahtarı optiğe yazılabilir mi ?

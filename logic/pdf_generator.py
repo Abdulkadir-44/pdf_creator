@@ -12,6 +12,40 @@ import math
 import logging
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+import sys
+
+# Arial (veya benzeri) fontu ReportLab'a tanıt (Türkçe 'İ' karakteri için önemli)
+try:
+    # Windows
+    if sys.platform == "win32":
+        arial_path = os.path.join(os.environ.get("WINDIR", "C:/Windows"), "Fonts", "arial.ttf")
+        if not os.path.exists(arial_path):
+             arial_path = os.path.join(os.environ.get("WINDIR", "C:/Windows"), "Fonts", "arialbd.ttf") # Bold dene
+    # Mac
+    elif sys.platform == "darwin":
+        arial_path = "/Library/Fonts/Arial.ttf"
+    # Linux
+    else:
+        linux_paths = [
+            "/usr/share/fonts/truetype/msttcorefonts/Arial.ttf",
+            "/usr/share/fonts/liberation/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/dejavu/DejaVuSans.ttf"
+        ]
+        arial_path = next((path for path in linux_paths if os.path.exists(path)), None)
+        if not arial_path:
+             arial_path = "Helvetica" # Bulamazsa varsayılan
+             
+    if os.path.exists(arial_path):
+        pdfmetrics.registerFont(TTFont('Arial', arial_path))
+        DEFAULT_FONT = "Arial"
+    else:
+        DEFAULT_FONT = "Helvetica" # Fallback
+except Exception as e:
+    logger.warning(f"Font yükleme hatası ({e}), Helvetica kullanılacak.")
+    DEFAULT_FONT = "Helvetica" 
+
 
 # Yeni loglama sistemi: Bu modülün kendi logger'ını al.
 # Adı otomatik olarak 'logic.pdf_generator' olacaktır.
@@ -155,6 +189,66 @@ class PDFCreator:
         self.cevap_listesi = cevaplar
         logger.info(f"Cevap anahtari eklendi ({len(cevaplar)} cevap)")
 
+    def _draw_title_on_canvas(self, canvas_obj):
+        """
+        'self.baslik_metni'ni alır ve PDF canvas'ına (ReportLab) çizer.
+        Bu, UI'daki '_draw_title_on_image'in (PIL) PDF versiyonudur.
+        """
+        if not self.baslik_metni:
+            logger.info("Başlık metni boş, çizilmiyor.")
+            return # Başlık yoksa çizme
+        
+        page_width, page_height = A4
+        
+        # PIL'deki 'i' harfini 'İ' yapma mantığını uygula
+        text_raw = (self.baslik_metni or "").strip()
+        text = text_raw.replace('i', 'İ').upper() or "QUIZ"
+        
+        # Sabitler (Bunlar UI'daki _draw_title_on_image'e benzer OLMALI)
+        # Not: 'top_margin' (soruların başladığı yer) 50pt idi.
+        # Biz de o 50pt'lik alanın tam ortasına (tepeden 25pt) çiziyoruz.
+        BASLIK_Y_POZISYONU_TEPEDEN = 35 # 50pt'lik alanın ortası
+        BASLIK_PT_MAX = 30
+        BASLIK_PT_MIN = 12
+        TITLE_MAX_W_RATIO = 0.85
+        
+        max_w_pt = page_width * TITLE_MAX_W_RATIO
+        
+        # Doğru fontu ve boyutu bul
+        pt = BASLIK_PT_MAX
+        try:
+            current_font = DEFAULT_FONT
+            canvas_obj.setFont(current_font, pt)
+        except:
+            current_font = "Helvetica"
+            canvas_obj.setFont(current_font, pt)
+            
+        w = pdfmetrics.stringWidth(text, current_font, pt)
+        
+        while pt > BASLIK_PT_MIN and w > max_w_pt:
+            pt -= 1
+            canvas_obj.setFont(current_font, pt)
+            w = pdfmetrics.stringWidth(text, current_font, pt)
+
+        # Kısaltma (UI'daki gibi)
+        if w > max_w_pt and len(text) > 5:
+            t = text
+            while len(t) > 5:
+                t = t[:-2] + "…"
+                w = pdfmetrics.stringWidth(t, current_font, pt)
+                if w <= max_w_pt:
+                    text = t
+                    break
+        
+        # Ortala ve Çiz
+        # Y ekseni (Dipten yukarı)
+        y_pos = page_height - BASLIK_Y_POZISYONU_TEPEDEN
+        
+        canvas_obj.setFillColorRGB(0.5, 0, 0) # Koyu kırmızı (darkred)
+        canvas_obj.drawCentredString(page_width / 2, y_pos, text)
+        
+        logger.info(f"PDF Başlığı çizildi: {text}")
+        
     def _create_yazili_layout(self, canvas_obj, gorseller, sayfa_no, page_width, page_height):
         """Yazili sablonu layout'u - Dinamik iyilestirilmis versiyon"""
         top_margin = page_height * 0.12
@@ -360,9 +454,9 @@ class PDFCreator:
     
     def kaydet(self, dosya_yolu, sayfa_haritasi=None):
         """
-        GÜNCELLENDİ (TEK BEYİN):
-        Artık 'sayfa_haritasi'nı (Önizlemenin kullandığı planı) parametre olarak alır.
-        Eğer harita yoksa, kendisi planlar.
+        GÜNCELLENDİ (TEK BEYİN + BAŞLIK):
+        Artık 'sayfa_haritasi'nı (Önizlemenin kullandığı planı) parametre olarak alır
+        ve 'self.baslik_metni'ni her sayfaya çizer.
         """
         try:
             logger.info(f"PDF oluşturma başlıyor: Tip={self.soru_tipi}, Dosya={os.path.basename(dosya_yolu)}")
@@ -404,9 +498,14 @@ class PDFCreator:
             # Haritayı (Önizlemeden geleni VEYA şimdi hesaplananı) kullanarak PDF'i çiz
             sayfa_no = 1
             for bu_sayfanin_sutunlari in sayfa_haritasi:
+                # 1. Şablonu çiz
                 c.drawImage(template_path, 0, 0, width=A4[0], height=A4[1])
                 
-                # Toplam soru sayısını hesapla (sıralı numaralandırma için)
+                # --- YENİ ADIM: BAŞLIĞI ÇİZ ---
+                self._draw_title_on_canvas(c) 
+                # --- YENİ ADIM BİTTİ ---
+                
+                # 2. Soruları çiz
                 total_placed_on_prev_pages = self.global_soru_sayaci
                 
                 if self.soru_tipi.lower() == "yazili":
@@ -449,6 +548,7 @@ class PDFCreator:
             print(f"❌ PDF KAYDETME HATASI: {e}")
             logger.error(f"PDF kaydetme işleminde kritik hata", exc_info=True)
             return False
+        
     def _create_yazili_layout_simple(self, canvas_obj, gorseller, sayfa_no, page_width, page_height, global_offset):
         """Yazılı için basit layout - sayfa başına maksimum 2 soru"""
         logger.info(f"Yazılı basit layout - Sayfa {sayfa_no}, {len(gorseller)} soru")

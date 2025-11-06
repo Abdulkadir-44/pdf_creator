@@ -1694,10 +1694,11 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
             self.konu_baslik_sayfasina_don()
 
     def pdf_olustur(self):
-        """PDF oluştur ve kullanıcıya bildir (ARTIK 'HARİTA' GÖNDERİYOR)"""
+        """PDF oluştur ve kullanıcıya bildir (ARTIK 'HARİTA' GÖNDERİYOR ve DOĞRU BAŞLIK)"""
         self.logger.info(f"PDF oluşturma başlatıldı - {self.ders_adi}")
         
         try:
+            # Reportlab modülü kontrolü
             try:
                 import reportlab
                 self.logger.debug("Reportlab modülü mevcut")
@@ -1708,12 +1709,16 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
                     "PDF oluşturmak için 'reportlab' modülü gerekli.\n\nÇözüm: Terminal'e şunu yazın:\npip install reportlab"
                 )
                 return
+
+            # PDF generator kontrolü
             try:
                 self.logger.debug("PDFCreator import edildi")
             except ImportError as e:
                 self.logger.error(f"PDFCreator import hatası: {e}")
                 self.basit_pdf_olustur()
                 return
+
+            # Cevap bilgisi kontrolü
             try:
                 cevap_bilgisi_mevcut = True
                 self.logger.debug("Cevap bilgisi modülü mevcut")
@@ -1721,18 +1726,18 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
                 cevap_bilgisi_mevcut = False
                 self.logger.warning("Cevap bilgisi modülü bulunamadı")
 
-
             # PDF oluştur
             pdf = PDFCreator()
             pdf.soru_tipi = self.soru_tipi_var.get()
 
-            # Başlık oluştur
-            konu_listesi = ", ".join(list(self.konu_soru_dagilimi.keys())[:3])
-            if len(self.konu_soru_dagilimi) > 3:
-                konu_listesi += f" ve {len(self.konu_soru_dagilimi)-3} konu daha"
-
-            baslik = f"{self.ders_adi} - {konu_listesi} - {self.soru_tipi_var.get()} - {self.zorluk_var.get()}"
+            # --- BAŞLIK OLUŞTURMA BÖLÜMÜ GÜNCELLENDİ ---
+            # Artık metin kutusundaki (self.baslik_text_var) başlığı alıyoruz.
+            baslik = (self.baslik_text_var.get() or "").strip()
+            if not baslik:
+                baslik = "QUIZ" # Eğer kutu boşsa varsayılan başlık
+            
             pdf.baslik_ekle(baslik)
+            # --- DEĞİŞİKLİK BİTTİ ---
 
             self.logger.debug(f"PDF'e geçen soru tipi: {self.soru_tipi_var.get()}")
 
@@ -1768,7 +1773,6 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
             elif not cevap_anahtari_isteniyor:
                 self.logger.info("Cevap anahtarı kullanıcı tercihi ile eklenmedi")
             
-
             # Kaydetme konumu sor
             cikti_dosya = filedialog.asksaveasfilename(
                 title="PDF'i Nereye Kaydetmek İstersiniz?",
@@ -1806,9 +1810,9 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
             self.logger.error(f"PDF oluşturma genel hatası: {e}")
             self.show_notification(
                 "Hata",
-                f"Beklenmeyen bir hata oluştu:\n{str(e)}\n\nLütfen konsolu kontrol edin."
+                f"Beklenmeyen bir hata oluştu:\n{str(e)}\n\Lütfen konsolu kontrol edin."
             )
-    
+            
     def basit_pdf_olustur(self):
         """Basit PDF oluşturma - PDFCreator sınıfı import edilemediğinde"""
         self.logger.warning("Basit PDF oluşturma moduna geçildi")
