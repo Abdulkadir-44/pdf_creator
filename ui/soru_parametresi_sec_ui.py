@@ -1280,7 +1280,11 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
             self.display_images_new(pdf_container, controls_container)
     
     def gorseli_guncelle_new(self, index):
-        """Yeni tasarımda görsel güncelle - YENİDEN PLANLAMA İLE"""
+        """
+        Yeni tasarımda görsel güncelle - YENİDEN PLANLAMA İLE
+        GÜNCELLENDİ: Havuzun "tükenme" (Senaryo A) veya "dolu olma" (Senaryo B)
+        durumlarını ayırt eder ve doğru uyarıyı gösterir.
+        """
         try:
             if 0 <= index < len(self.secilen_gorseller):
                 mevcut_gorsel_path = self.secilen_gorseller[index]
@@ -1295,7 +1299,7 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
                 konu_path = self.secilen_konular[mevcut_konu]
                 klasor_yolu = os.path.join(konu_path, soru_tipi.lower(), zorluk.lower())
     
-                # Klasördeki tüm görselleri al
+                # Klasördeki tüm görselleri al (dosya adları olarak)
                 tum_gorseller = [f for f in os.listdir(klasor_yolu) 
                                if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))]
     
@@ -1303,23 +1307,47 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
                     self.show_error("Güncellenecek görsel bulunamadı!")
                     return
     
-                # *** YENİ: Kullanılmamış görselleri bul ***
+                # Kullanılmamış (havuzda olmayan) görselleri bul
                 kullanilmamis_gorseller = [
                     f for f in tum_gorseller 
                     if f not in self.kullanilan_sorular[mevcut_konu]
                 ]
     
                 if not kullanilmamis_gorseller:
-                    # *** YENİ: Havuz tükendi, kullanıcıya sor (parametresiz) ***
-                    self.show_havuz_tukendi_dialog(mevcut_konu, index)
-                    return
+                    # --- YENİ KONTROL (SENİN İSTEDİĞİN) ---
+                    # Havuz boş. Ama NEDEN?
+                    
+                    # 1. Bu konudan şu an kaç soru seçili?
+                    secili_konu_gorselleri_sayisi = 0
+                    for g_path in self.secilen_gorseller:
+                        if self.find_topic_from_path(g_path) == mevcut_konu:
+                            secili_konu_gorselleri_sayisi += 1
+                            
+                    # 2. Klasörde toplam kaç soru var?
+                    toplam_soru_sayisi = len(tum_gorseller)
+                    
+                    if secili_konu_gorselleri_sayisi == toplam_soru_sayisi:
+                        # --- SENARYO B: TÜM SORULAR ZATEN SEÇİLİ ---
+                        # Kullanıcıyı bilgilendir, reset sorma.
+                        self.logger.warning(f"'{mevcut_konu}' için güncelleme başarısız. Tüm sorular ({toplam_soru_sayisi}) zaten seçili.")
+                        self.show_error(
+                            f"'{mevcut_konu}' konusundaki tüm sorular ({toplam_soru_sayisi} adet) zaten seçilmiş.\n\n"
+                            "Güncellemek için havuzda başka soru kalmadı."
+                        )
+                        return # Fonksiyonu bitir
+                    else:
+                        # --- SENARYO A: SORULAR GÜNCELLENEREK BİTTİ ---
+                        # Havuz tükendi, reset sormak mantıklı.
+                        self.logger.info(f"'{mevcut_konu}' için havuz tükendi. Reset dialogu gösteriliyor.")
+                        self.show_havuz_tukendi_dialog(mevcut_konu, index)
+                        return
+                    # --- YENİ KONTROL BİTTİ ---
     
-                # Rastgele yeni görsel seç
+                # (Bu kısım, 'kullanilmamis_gorseller' varsa çalışır)
                 import random
                 yeni_gorsel_dosya = random.choice(kullanilmamis_gorseller)
                 yeni_gorsel_path = os.path.join(klasor_yolu, yeni_gorsel_dosya)
                 
-                # *** YENİ: Eski görseli kullanılan listesinde tut, yenisini ekle ***
                 eski_gorsel_dosya = os.path.basename(mevcut_gorsel_path)
                 self.kullanilan_sorular[mevcut_konu].add(yeni_gorsel_dosya)
                 
@@ -1327,16 +1355,12 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
                 self.secilen_gorseller[index] = yeni_gorsel_path
                 self.logger.info(f"Görsel güncellendi: {eski_gorsel_dosya} -> {yeni_gorsel_dosya}")
     
-                # --- ESKİ YENİLEMEYİ SİL ---
-                # self.refresh_pdf_preview_only(pdf_container)
-                
-                # --- YENİ SENKRONİZASYONU EKLE ---
+                # 'Tek Beyin' senkronizasyonu için yeniden planla
                 self._replan_and_refresh_ui()
     
         except Exception as e:
             self.logger.error(f"Görsel güncelleme hatası: {e}")
             self.show_error("Görsel güncellerken bir hata oluştu!")
-    
     def gorseli_kaldir_new(self, index):
         """Yeni tasarımda görsel kaldır - YENİDEN PLANLAMA İLE"""
         try:
