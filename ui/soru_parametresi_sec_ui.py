@@ -1471,6 +1471,93 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
             hover_color="#5a6268"
         )
         hayir_btn.pack(side="left", padx=10)                             
+    
+    def _show_cevap_onay_dialog(self, message, on_confirm_callback):
+        """
+        Kullanıcıya cevapların '?' olacağını bildiren ve ONAY/REDDET soran
+        yeni bir dialog gösterir.
+        
+        on_confirm_callback: Kullanıcı "Devam Et"e basarsa çalışacak fonksiyon.
+        """
+        try:
+            dialog_window = ctk.CTkToplevel(self.master)
+            dialog_window.title("Cevap Uyarısı")
+            dialog_window.geometry("450x300")
+            dialog_window.resizable(False, False)
+            dialog_window.transient(self.master)
+            dialog_window.grab_set()
+
+            # Merkeze yerleştir
+            self.master.update_idletasks()
+            x = self.master.winfo_x() + self.master.winfo_width()//2 - 225
+            y = self.master.winfo_y() + self.master.winfo_height()//2 - 150
+            dialog_window.geometry(f"+{x}+{y}")
+
+            # İkon
+            icon_label = ctk.CTkLabel(
+                dialog_window,
+                text="⚠️",
+                font=ctk.CTkFont(size=48),
+                text_color="#ffc107" # Sarı uyarı rengi
+            )
+            icon_label.pack(pady=20)
+
+            # Mesaj (Gelen mesajı kullan)
+            message_label = ctk.CTkLabel(
+                dialog_window,
+                text=message + "\n\nCevap anahtarı '?' olarak oluşturulacak.\nYine de devam etmek istiyor musunuz?",
+                font=ctk.CTkFont(size=14),
+                justify="center",
+                wraplength=400
+            )
+            message_label.pack(pady=20, padx=20)
+
+            # Butonlar
+            button_frame = ctk.CTkFrame(dialog_window, fg_color="transparent")
+            button_frame.pack(pady=20)
+
+            def on_confirm():
+                """Önce dialogu kapat, sonra asıl kaydetme işini çağır."""
+                dialog_window.destroy()
+                if callable(on_confirm_callback):
+                    on_confirm_callback()
+
+            def on_reject():
+                """Sadece dialogu kapat, hiçbir şey yapma."""
+                dialog_window.destroy()
+
+            # Evet (Devam Et) butonu
+            evet_btn = ctk.CTkButton(
+                button_frame,
+                text="Evet, Devam Et",
+                command=on_confirm,
+                font=ctk.CTkFont(size=14, weight="bold"),
+                width=140,
+                height=40,
+                fg_color="#28a745", # Yeşil
+                hover_color="#218838"
+            )
+            evet_btn.pack(side="left", padx=10)
+
+            # Hayır (Reddet) butonu
+            hayir_btn = ctk.CTkButton(
+                button_frame,
+                text="Hayır, İptal",
+                command=on_reject, # Sadece kapatır
+                font=ctk.CTkFont(size=14, weight="bold"),
+                width=100,
+                height=40,
+                fg_color="#6c757d", # Gri
+                hover_color="#5a6268"
+            )
+            hayir_btn.pack(side="left", padx=10)
+            
+        except Exception as e:
+            self.logger.error(f"Onay dialogu gösterilirken hata: {e}", exc_info=True)
+            # Dialog bozulursa, onayı otomatik ver (en kötü ihtimal)
+            if callable(on_confirm_callback):
+                on_confirm_callback()
+                
     def find_topic_from_path(self, gorsel_path):
         """Görsel yolundan hangi konudan geldiğini bul"""
         try:
@@ -1768,11 +1855,15 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
             self.konu_baslik_sayfasina_don()
 
     def pdf_olustur(self):
-        """PDF oluştur ve kullanıcıya bildir (ARTIK 'HARİTA' GÖNDERİYOR ve DOĞRU BAŞLIK)"""
+        """
+        PDF oluşturur.
+        GÜNCELLENDİ: Cevaplarda '?' varsa, kaydetmeden önce
+        yeni '_show_cevap_onay_dialog' ile kullanıcıdan onay alır.
+        """
         self.logger.info(f"PDF oluşturma başlatıldı - {self.ders_adi}")
         
         try:
-            # Reportlab modülü kontrolü
+            # (Tüm 'reportlab' ve 'PDFCreator' import kontrolleri aynı kalsın)
             try:
                 import reportlab
                 self.logger.debug("Reportlab modülü mevcut")
@@ -1783,16 +1874,12 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
                     "PDF oluşturmak için 'reportlab' modülü gerekli.\n\nÇözüm: Terminal'e şunu yazın:\npip install reportlab"
                 )
                 return
-
-            # PDF generator kontrolü
             try:
                 self.logger.debug("PDFCreator import edildi")
             except ImportError as e:
                 self.logger.error(f"PDFCreator import hatası: {e}")
                 self.basit_pdf_olustur()
                 return
-
-            # Cevap bilgisi kontrolü
             try:
                 cevap_bilgisi_mevcut = True
                 self.logger.debug("Cevap bilgisi modülü mevcut")
@@ -1800,93 +1887,96 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
                 cevap_bilgisi_mevcut = False
                 self.logger.warning("Cevap bilgisi modülü bulunamadı")
 
-            # PDF oluştur
+            # --- 1. KONTROL AŞAMASI (HAZIRLIK) ---
+            
+            # PDF nesnesini ve başlığı hazırla
             pdf = PDFCreator()
             pdf.soru_tipi = self.soru_tipi_var.get()
-
-            # --- BAŞLIK OLUŞTURMA BÖLÜMÜ GÜNCELLENDİ ---
-            # Artık metin kutusundaki (self.baslik_text_var) başlığı alıyoruz.
             baslik = (self.baslik_text_var.get() or "").strip()
             if not baslik:
-                baslik = "QUIZ" # Eğer kutu boşsa varsayılan başlık
-            
+                baslik = "QUIZ" 
             pdf.baslik_ekle(baslik)
-            # --- DEĞİŞİKLİK BİTTİ ---
-
-            self.logger.debug(f"PDF'e geçen soru tipi: {self.soru_tipi_var.get()}")
-
-            # Görselleri ekle (Ana listeyi 'gorsel_listesi'ne kopyala)
             pdf.gorsel_listesi = self.secilen_gorseller[:]
             
+            # Cevap listesini PLANA GÖRE (Doğru Sırayla) oluştur
+            self.logger.info("PDF Cevap Anahtarı için 'sayfa_haritasi' okunuyor...")
             cevaplar = []
-            for idx, gorsel in enumerate(self.secilen_gorseller, 1):
-                try:
-                    cevap = get_answer_for_image(gorsel)
-                    cevaplar.append(cevap)
-                except Exception as e:
-                    self.logger.error(f"Görsel {idx} için cevap alınamadı: {e}")
+            for sayfa_sutunlari in self.sayfa_haritasi:
+                for sutun in sayfa_sutunlari:
+                    for soru_info in sutun:
+                        cevap = get_answer_for_image(soru_info['path'])
+                        cevaplar.append(cevap)
+            self.logger.info(f"PDF Cevap Anahtarı {len(cevaplar)} cevap ile oluşturuldu (Planlanmış Sıra).")
             
-            # Cevap anahtarı kontrolü
             cevap_anahtari_isteniyor = self.cevap_anahtari_var.get() == "Evet"
-            self.logger.info(f"Cevap anahtarı kontrolü: {cevap_anahtari_isteniyor}")
-
+            
             if cevap_anahtari_isteniyor and cevaplar:
                 pdf.cevap_anahtari_ekle(cevaplar)
-                try:
-                    bilinmeyen = sum(1 for c in cevaplar if str(c).strip() == "?")
-                    if bilinmeyen > 0:
-                        oran = int(100 * bilinmeyen / max(1, len(cevaplar)))
-                        info = f"Cevap anahtarında {bilinmeyen}/{len(cevaplar)} soru için cevap bulunamadı (%{oran})."
-                        self.logger.warning(info)
-                        try:
-                            self._show_dialog("Cevap Anahtarı Uyarısı", info, "#ffc107")
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-            elif not cevap_anahtari_isteniyor:
-                self.logger.info("Cevap anahtarı kullanıcı tercihi ile eklenmedi")
             
-            # Kaydetme konumu sor
-            cikti_dosya = filedialog.asksaveasfilename(
-                title="PDF'i Nereye Kaydetmek İstersiniz?",
-                defaultextension=".pdf",
-                filetypes=[("PDF Dosyası", "*.pdf")],
-                initialfile=f"{self.ders_adi}_{self.soru_tipi_var.get()}_{self.zorluk_var.get()}_{len(self.secilen_gorseller)}_soru.pdf"
-            )
+            # --- 2. KAYDETME AŞAMASI (İÇ İÇE FONKSİYON) ---
+            
+            def _proceed_to_save():
+                """
+                Bu fonksiyon, tüm kontrollerden sonra, 'filedialog'u
+                ve asıl 'pdf.kaydet'i çağıran son adımdır.
+                """
+                try:
+                    # Kaydetme konumu sor
+                    cikti_dosya = filedialog.asksaveasfilename(
+                        title="PDF'i Nereye Kaydetmek İstersiniz?",
+                        defaultextension=".pdf",
+                        filetypes=[("PDF Dosyası", "*.pdf")],
+                        initialfile=f"{self.ders_adi}_{self.soru_tipi_var.get()}_{self.zorluk_var.get()}_{len(self.secilen_gorseller)}_soru.pdf"
+                    )
 
-            if cikti_dosya:
-                self.logger.info(f"PDF kaydediliyor: {cikti_dosya}")
-                
-                # --- TEK BEYİN ÇÖZÜMÜ ---
-                # Önizleme için kullandığımız 'sayfa_haritasi'nı (planı)
-                # 'kaydet' fonksiyonuna parametre olarak gönderiyoruz.
-                if pdf.kaydet(cikti_dosya, self.sayfa_haritasi):
-                    kayit_yeri = f"{os.path.basename(os.path.dirname(cikti_dosya))}/{os.path.basename(cikti_dosya)}"
-                    
-                    self.logger.info(f"PDF başarıyla oluşturuldu: {os.path.basename(cikti_dosya)}")
-                    
-                    self.show_notification(
-                        "PDF Başarıyla Oluşturuldu!",
-                        f"Kayıt Yeri: {kayit_yeri}\n\n{len(self.secilen_gorseller)} soru PDF formatında kaydedildi\n\nKonu Dağılımı:\n" + 
-                        "\n".join([f"• {konu}: {sayi} soru" for konu, sayi in self.konu_soru_dagilimi.items()])
-                    )
-                else:
-                    self.logger.error("PDF kaydedilemedi")
-                    self.show_notification(
-                        "PDF Oluşturulamadı",
-                        "PDF oluşturulurken bir hata oluştu.\nLütfen tekrar deneyin."
-                    )
+                    if cikti_dosya:
+                        self.logger.info(f"PDF kaydediliyor: {cikti_dosya}")
+                        
+                        # 'sayfa_haritasi'nı (Önizleme planını) 'kaydet'e gönder
+                        if pdf.kaydet(cikti_dosya, self.sayfa_haritasi):
+                            kayit_yeri = f"{os.path.basename(os.path.dirname(cikti_dosya))}/{os.path.basename(cikti_dosya)}"
+                            self.logger.info(f"PDF başarıyla oluşturuldu: {os.path.basename(cikti_dosya)}")
+                            self.show_notification(
+                                "PDF Başarıyla Oluşturuldu!",
+                                f"Kayıt Yeri: {kayit_yeri}\n\n{len(self.secilen_gorseller)} soru PDF formatında kaydedildi\n\nKonu Dağılımı:\n" + 
+                                "\n".join([f"• {konu}: {sayi} soru" for konu, sayi in self.konu_soru_dagilimi.items()])
+                            )
+                        else:
+                            self.logger.error("PDF kaydedilemedi")
+                            self.show_notification(
+                                "PDF Oluşturulamadı",
+                                "PDF oluşturulurken bir hata oluştu.\nLütfen tekrar deneyin."
+                            )
+                    else:
+                        self.logger.info("Kullanıcı PDF kaydetmeyi iptal etti")
+                except Exception as e:
+                    self.logger.error(f"PDF kaydetme (_proceed_to_save) hatası: {e}", exc_info=True)
+                    self.show_error(f"PDF kaydedilirken hata oluştu: {e}")
+            
+            # --- 3. ONAY AŞAMASI (KARAR) ---
+            
+            # '?' içeren cevap var mı?
+            bilinmeyen = 0
+            if cevap_anahtari_isteniyor and cevaplar:
+                bilinmeyen = sum(1 for c in cevaplar if str(c).strip() == "?")
+            
+            if bilinmeyen > 0:
+                # SORUN VARSA: Önce yeni dialogu çağır, 'on_confirm' olarak _proceed_to_save'i ver.
+                info = f"{len(cevaplar)} sorudan {bilinmeyen} tanesi için cevap bulunamadı (%{int(100 * bilinmeyen / len(cevaplar))})."
+                self.logger.warning(info + " Kullanıcı onayı bekleniyor.")
+                self._show_cevap_onay_dialog(message=info, on_confirm_callback=_proceed_to_save)
             else:
-                self.logger.info("Kullanıcı PDF kaydetmeyi iptal etti")
+                # SORUN YOKSA: Kaydetme işini direkt çağır.
+                self.logger.info("Cevaplarda sorun yok, kaydetme başlatılıyor.")
+                _proceed_to_save()
 
         except Exception as e:
-            self.logger.error(f"PDF oluşturma genel hatası: {e}")
+            self.logger.error(f"PDF oluşturma genel hatası: {e}", exc_info=True)
             self.show_notification(
                 "Hata",
                 f"Beklenmeyen bir hata oluştu:\n{str(e)}\n\Lütfen konsolu kontrol edin."
             )
-            
+                         
     def basit_pdf_olustur(self):
         """Basit PDF oluşturma - PDFCreator sınıfı import edilemediğinde"""
         self.logger.warning("Basit PDF oluşturma moduna geçildi")
