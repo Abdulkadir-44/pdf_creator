@@ -71,6 +71,164 @@ class ResimYonetimiBeyni:
         self._thumb_cache.clear()
         logger.debug("Beyin önbellekleri (sayım, boyut) temizlendi.")
 
+    def _find_folder_insensitive(self, parent_path, target_name):
+        """
+        Bir klasör içinde (örn: "Yazılı") arar,
+        'yazili', 'YAZILI', 'yazıli' vb. eşleşmelerini bulur.
+        Bulursa tam yolu (diskteki haliyle) döndürür, bulamazsa None.
+        (Bu fonksiyon UI'dan 'Beyin'e taşındı)
+        """
+        target_lower = target_name.lower().replace('ı', 'i')
+        
+        if not os.path.exists(parent_path):
+            return None
+            
+        try:
+            for item_name in os.listdir(parent_path):
+                if not os.path.isdir(os.path.join(parent_path, item_name)):
+                    continue 
+                    
+                current_lower = item_name.lower().replace('ı', 'i')
+                
+                if current_lower == target_lower:
+                    return os.path.join(parent_path, item_name)
+                    
+            return None
+        except Exception as e:
+            logger.warning(f"Duyarsız arama hatası: {parent_path} -> {e}")
+            return None
+    
+    def get_tur_details_data(self, folder_path):
+        """
+        'show_tur_details' için gereken TÜM verileri toplar.
+        (Thread'de çalışır)
+        """
+        data = {
+            'tur_adi': os.path.basename(folder_path),
+            'konu_adi': os.path.basename(os.path.dirname(folder_path)),
+            'relative_path': self.get_relative_path(folder_path),
+            'total_images': self.count_all_images_recursive_cached(folder_path),
+            'total_size': self.get_folder_size_cached(folder_path),
+            'last_modified': self.get_last_modified(folder_path),
+            'zorluk_stats': []
+        }
+        
+        try:
+            # "yazili" sorununu çözdüğümüz akıllı aramayı burada da kullanıyoruz
+            for zorluk in ["Kolay", "Orta", "Zor"]:
+                zorluk_path = self._find_folder_insensitive(folder_path, zorluk)
+                
+                zorluk_stat = {'ad': zorluk, 'exists': False, 'images': 0, 'size': 0}
+                if zorluk_path:
+                    zorluk_stat['exists'] = True
+                    zorluk_stat['images'] = self.count_images(zorluk_path)
+                    zorluk_stat['size'] = self.get_folder_size_cached(zorluk_path)
+                data['zorluk_stats'].append(zorluk_stat)
+                
+        except Exception as e:
+            logger.error(f"Tur detay verisi alınamadı: {folder_path} -> {e}")
+        return data
+
+    def get_zorluk_details_data(self, folder_path):
+        """
+        'show_zorluk_details' için gereken TÜM verileri toplar.
+        (Thread'de çalışır)
+        """
+        data = {
+            'zorluk_adi': os.path.basename(folder_path),
+            'relative_path': self.get_relative_path(folder_path),
+            'total_images': 0,
+            'total_size': 0,
+            'last_modified': "Bilinmiyor"
+        }
+        try:
+            # Bu fonksiyon 'count_images' kullanıyor (recursive değil)
+            data['total_images'] = self.count_images(folder_path)
+            data['total_size'] = self.get_folder_size_cached(folder_path)
+            data['last_modified'] = self.get_last_modified(folder_path)
+        except Exception as e:
+            logger.error(f"Zorluk detay verisi alınamadı: {folder_path} -> {e}")
+        return data
+    
+    def get_ders_details_data(self, folder_path):
+        """
+        'show_ders_details' için gereken TÜM verileri toplar.
+        Bu, 'os.walk' kullandığı için ağırdır ve thread'de çalışmalıdır.
+        """
+        data = {
+            'ders_adi': os.path.basename(folder_path),
+            'relative_path': self.get_relative_path(folder_path),
+            'konular': [],
+            'total_images': 0,
+            'total_size': 0,
+            'last_modified': "Bilinmiyor"
+        }
+        
+        try:
+            # os.listdir (I/O)
+            konular_list = [d for d in os.listdir(folder_path)
+                            if os.path.isdir(os.path.join(folder_path, d))]
+            
+            data['total_images'] = self.count_all_images_recursive_cached(folder_path)
+            data['total_size'] = self.get_folder_size_cached(folder_path)
+            data['last_modified'] = self.get_last_modified(folder_path)
+            
+            konular_data = []
+            for konu in sorted(konular_list):
+                konu_path = os.path.join(folder_path, konu)
+                # os.walk (I/O)
+                konu_images = self.count_all_images_recursive_cached(konu_path)
+                konular_data.append({'ad': konu, 'resim_sayisi': konu_images})
+                
+            data['konular'] = konular_data
+            
+        except Exception as e:
+            logger.error(f"Ders detay verisi alınamadı: {folder_path} -> {e}")
+            
+        return data
+
+    def get_konu_details_data(self, folder_path):
+        """
+        'show_konu_details' için gereken TÜM verileri toplar.
+        (Artık 'Test/Yazılı' mantığını içeriyor)
+        """
+        data = {
+            'konu_adi': os.path.basename(folder_path),
+            'ders_adi': os.path.basename(os.path.dirname(folder_path)),
+            'relative_path': self.get_relative_path(folder_path),
+            'total_images': self.count_all_images_recursive_cached(folder_path),
+            'total_size': self.get_folder_size_cached(folder_path),
+            'last_modified': self.get_last_modified(folder_path),
+            'tur_stats': [] # Test/Yazılı istatistikleri için
+        }
+
+        try:
+            # "yazili" sorununu çözen duyarsız aramayı burada da kullanıyoruz
+            for tur in ["Test", "Yazılı"]:
+                # _find_folder_insensitive'in Beyin'de olduğundan emin ol
+                tur_path = self._find_folder_insensitive(folder_path, tur)
+                
+                tur_stat = {'ad': tur, 'exists': False, 'zorlukler': []}
+                
+                if tur_path:
+                    tur_stat['exists'] = True
+                    for zorluk in ["Kolay", "Orta", "Zor"]:
+                        zorluk_path = self._find_folder_insensitive(tur_path, zorluk)
+                        
+                        zorluk_stat = {'ad': zorluk, 'exists': False, 'images': 0}
+                        if zorluk_path:
+                            zorluk_stat['exists'] = True
+                            # count_images (recursive değil)
+                            zorluk_stat['images'] = self.count_images(zorluk_path) 
+                        tur_stat['zorlukler'].append(zorluk_stat)
+                
+                data['tur_stats'].append(tur_stat)
+                
+        except Exception as e:
+            logger.error(f"Konu detay verisi alınamadı: {folder_path} -> {e}")
+            
+        return data
+
     def _has_subfolders(self, folder_path: str) -> bool:
         """
         Bir klasörün HİÇ alt klasörü olup olmadığını HIZLICA kontrol eder.
