@@ -186,6 +186,9 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
 
         # Selection event
         self.tree_view.bind("<<TreeviewSelect>>", self.on_tree_select)
+        
+        #(TEMBEL YÜKLEME İÇİN) ---
+        self.tree_view.bind("<<TreeviewOpen>>", self.on_folder_expand)
 
         # Detay paneli oluştur
         self.create_detail_panel(left_panel)
@@ -322,33 +325,60 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
             # Mevcut davranışını koru
             self.klasor_secildi(folder_path)
 
-    def get_folder_path_from_item(self, item_id):
-        """TreeView item ID'sinden klasör yolunu al"""
-        # Item'ın text'ini al
-        item_text = self.tree_view.item(item_id, "text")
+    # ui/resim_yonetimi_ui.py -> Sınıfın içine yeni fonksiyon olarak ekle:
 
-        # İkonları temizle
-        for icon in ["🎯", "📂", "📋", "⭐", "📁"]:
-            item_text = item_text.replace(icon, "").strip()
+    def on_folder_expand(self, event):
+        """Kullanıcı bir klasörün [+] simgesine bastığında tetiklenir."""
+        
+        # 1. Hangi öğenin açıldığını al
+        item_id = self.tree_view.focus() # 'focus()' hangi öğenin + simgesine basıldığını verir
+        
+        # 2. Bu öğenin altındaki ilk çocuğu bul (bizim "Yükleniyor..." satırımız)
+        children = self.tree_view.get_children(item_id)
+        if not children:
+            return # Zaten alt öğesi yoksa (ya da çoktan yüklendiyse) bırak
 
-        # Parent'ları takip ederek tam yolu bul
-        parent_id = self.tree_view.parent(item_id)
-        path_parts = [item_text]
-
-        while parent_id:
-            parent_text = self.tree_view.item(parent_id, "text")
-            for icon in ["🎯", "📂", "📋", "⭐", "📁"]:
-                parent_text = parent_text.replace(icon, "").strip()
-            path_parts.insert(0, parent_text)
-            parent_id = self.tree_view.parent(parent_id)
-
-        # Ana klasör yolu ile birleştir
-        if self.ana_klasor_yolu:
-            full_path = os.path.join(self.ana_klasor_yolu, *path_parts)
-            return full_path if os.path.exists(full_path) else None
-
-        return None
+        first_child_id = children[0]
+        
+        # 3. Bu ilk çocuğun "Yükleniyor..." satırı olup olmadığını kontrol et
+        if self.tree_view.item(first_child_id, "text") == "Yükleniyor...":
             
+            # 4. "Yükleniyor..." satırını SİL
+            self.tree_view.delete(first_child_id)
+            
+            # 5. Asıl klasörün yolunu al (yeni hızlı fonksiyonumuzla)
+            folder_path = self.get_folder_path_from_item(item_id)
+            if not folder_path:
+                return
+
+            # 6. "Beyin"den SADECE BİR alt seviyeyi iste (Tembel Yükleme)
+            yeni_alt_klasorler = self.beyin.get_sadece_alt_klasorler(folder_path)
+            
+            # 7. Gelen yeni klasörleri ağaca ekle
+            for (klasor_adi, tam_yol, has_children) in yeni_alt_klasorler:
+                self.add_folder_to_treeview(
+                    parent_id=item_id,
+                    folder_path=tam_yol,
+                    folder_name=klasor_adi,
+                    has_children=has_children 
+                )
+                
+    def get_folder_path_from_item(self, item_id):
+        """
+        TreeView item ID'sinden klasör yolunu alır. (Hızlı versiyon)
+        Artık 'values' içinde saklanan yolu doğrudan okur.
+        """
+        try:
+            # 'values' listesinin ilk elemanında tam yolu saklamıştık
+            values = self.tree_view.item(item_id, "values")
+            if values:
+                return str(values[0])
+            else:
+                # Eğer 'values' yoksa (belki "Yükleniyor..." satırıdır)
+                return None
+        except Exception:
+            return None
+                
     def show_initial_message(self):
         """Başlangıç mesajını göster"""
         logger.debug("Başlangıç mesajı gösteriliyor")
@@ -377,104 +407,144 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
             logger.info("Klasör seçme işlemi kullanıcı tarafından iptal edildi.")
           
     def goster_klasor_agaci(self, ana_klasor):
-        """Klasör ağacını göstermek için Beyin'i tetikler."""
-        logger.info(f"Klasör ağacı '{ana_klasor}' yolu için beyin tetikleniyor.")
+        """Klasör ağacının ilk seviyesini göstermek için display_tree'yi tetikler."""
+        logger.info(f"Tembel Yükleme: '{ana_klasor}' yolu için ilk seviye gösteriliyor.")
         
         try:
-            # --- DEĞİŞİKLİK BURADA ---
-            # Ağır işi "Beyin" yapar:
-            self.beyin.build_tree_structure(ana_klasor)
-            self.beyin.calculate_folder_stats()
-            
-            # Ağaç yapısını göster (bu hala UI'ın görevi)
-            self.display_tree()
-            logger.info("Klasör ağacı beyin tarafından oluşturuldu ve UI'da gösterime hazır.")
+            # Artık 'build' veya 'calculate' yok.
+            # Sadece 'display_tree'ye ana klasörü veriyoruz.
+            self.display_tree(ana_klasor) 
+            logger.info("Klasör ağacı ilk seviyesi yüklendi.")
         except Exception as e:
             logger.error(f"Klasör ağacı oluşturulurken hata: {e}", exc_info=True)
             self.show_error_message(f"Klasör ağacı oluşturulurken hata oluştu:\n{e}")
-    
-    def display_tree(self):
-        """Treeview'ı populate et"""
+            
+    def display_tree(self, ana_klasor=None):
+        """
+        Treeview'ı populate et. (Tembel Yükleme için güncellendi)
+        ana_klasor: None değilse, ilk yükleme yapılır.
+        """
         # Treeview'ı temizle
         for item in self.tree_view.get_children():
             self.tree_view.delete(item)
 
         search_text = self.search_entry.get().strip()
 
-        # Arama modu
+        # ARAMA MODU (GEÇİCİ OLARAK DEVRE DIŞI - HENÜZ ÇALIŞMAZ)
         if search_text and len(search_text) >= 2:
             self.populate_treeview_with_search()
-        else:
-            # Normal mod - Ana klasörleri göster
-            self.populate_treeview_normal()
-
+        
+        # TEMBEL YÜKLEME (NORMAL MOD)
+        elif ana_klasor:
+            # Ana klasörün sadece BİR alt seviyesini beyinden al
+            birinci_seviye_klasorler = self.beyin.get_sadece_alt_klasorler(ana_klasor)
+        
+            # DÜZELTİLMİŞ HALİ
+            for (klasor_adi, tam_yol, has_children) in birinci_seviye_klasorler:
+                self.add_folder_to_treeview(
+                    parent_id="",
+                    folder_path=tam_yol,
+                    folder_name=klasor_adi,
+                    has_children=has_children # <-- Artık 'has_children' tanımlı
+                )
         
         self._update_upload_button_state()
 
     def populate_treeview_normal(self):
-        """Normal modda Treeview'ı populate et"""
-        for folder_path, folder_info in self.beyin.tree_data.items():
-            self.add_folder_to_treeview("", folder_path, folder_info)
-
+        """Arama silindiğinde normal moda dönmek için kullanılır."""
+        # Bu fonksiyonun eski mantığı (tree_data'yı gezmek) artık display_tree içinde.
+        # Bu fonksiyon, arama kutusu temizlendiğinde çağrılır.
+        if self.ana_klasor_yolu:
+            self.display_tree(self.ana_klasor_yolu)
+            
     def populate_treeview_with_search(self):
-        """Arama modunda Treeview'ı populate et"""
+        """
+        Arama modunda Treeview'ı populate et (Tembel Yükleme'ye uygun)
+        'search_results' listesini hiyerarşik olarak çizer. (Düzeltilmiş Versiyon)
+        """
         if not self.search_results:
+            logger.info("Arama sonucu bulunamadı, ağaç boş gösteriliyor.")
+            self.tree_view.insert(
+                parent="", # 'parent=""' olmalı (Hata burada olmuştu)
+                index="end", 
+                text=" 🚫 Eşleşen öge bulunamadı."
+            )
             return
         
-        # Eşleşen klasörleri hiyerarşik olarak ekle
-        parent_items = {}  # parent_path -> item_id mapping
+        # Hangi yolu (path) hangi item_id ile eklediğimizi takip eder
+        added_items_map = {}  # {path: item_id}
         
+        # Beyin'den gelen liste zaten hiyerarşik (Ders -> Konu -> Tur)
         for result in self.search_results:
-            folder_path = result['path']
-            folder_info = result['info']
-            match_type = result['match_type']
-            parent_path = result['parent_path']
+            path = result['path']
+            name = result['name']
+            has_children = result['has_children']
+            parts = result['parts']
             
-            # Parent ID'yi bul
-            parent_id = ""
-            if parent_path:
-                # Parent path'i string olarak birleştir
-                parent_key = "|".join(parent_path)
-                parent_id = parent_items.get(parent_key, "")
+            # Ebeveyni belirle
+            parent_id = "" # Varsayılan olarak kök (örn: 'Coğrafya' için)
             
-            # Klasörü ekle
-            item_id = self.add_folder_to_treeview(parent_id, folder_path, folder_info, match_type)
+            if len(parts) > 1:
+                # Bu bir çocuktur (örn: 'Dünya üzerindeki çöller')
+                # Ebeveyninin 'parts' listesi, bu listenin 'sonuncusu hariç' halidir
+                parent_parts = parts[:-1]
+                
+                # Ebeveynin tam yolunu oluştur (bu, map'teki key'imiz olacak)
+                parent_path = os.path.join(self.ana_klasor_yolu, *parent_parts)
+                
+                if parent_path in added_items_map:
+                    parent_id = added_items_map[parent_path]
+                else:
+                    # Bu bir 'yetim' (Bu durumun olmaması lazım, 
+                    # çünkü Beyin ebeveynleri de ekliyor)
+                    logger.warning(f"Yetim arama sonucu bulundu: {name}")
+                    pass # parent_id = "" (kök) olarak kalır
             
-            # Bu item'ı parent olarak kaydet
-            current_key = "|".join(parent_path + [folder_path])
-            parent_items[current_key] = item_id
-
-    def add_folder_to_treeview(self, parent_id, folder_path, folder_info, match_type="normal"):
-        folder_name = folder_info['name']
-        children = folder_info['children']
-
-        # Başlığı (🎯 📁 📋 ⭐) koruyabilirsin; sadece status kaldırıldı
-        if match_type in ['exact', 'partial']:
-            display_name = f"🎯 {folder_name}"
-        elif match_type == 'child':
-            display_name = f"📁 {folder_name}"
-        elif match_type == 'grandchild':
-            display_name = f"📋 {folder_name}"
-        elif match_type == 'great_grandchild':
-            display_name = f"⭐ {folder_name}"
-        else:
-            display_name = f"📁 {folder_name}"
-
+            # Bu öğeyi (Coğrafya VEYA Dünya üzerindeki çöller) ekle
+            # (eğer zaten eklenmediyse)
+            if path not in added_items_map:
+                item_id = self.add_folder_to_treeview(
+                    parent_id=parent_id,
+                    folder_path=path,
+                    folder_name=name,
+                    has_children=has_children
+                )
+                # Haritaya ekle ki, çocukları bunun altına eklenebilsin
+                added_items_map[path] = item_id
+                                    
+    def add_folder_to_treeview(self, parent_id, folder_path, folder_name, has_children: bool):
+        """
+        Ağaca BİR klasör ekler ve "Tembel Yükleme" için sahte bir alt öğe bırakır.
+        (Artık 'folder_info' veya 'match_type' almaz)
+        """
+        
         level = self.beyin.get_folder_level(folder_path)
-        modified_val = self.beyin.get_last_modified(folder_path) if level == "DERS" else ""
+        
+        # İkonları seviyeye göre belirle
+        icon = "📁"
+        if level == "DERS": icon = "📚"
+        elif level == "KONU": icon = "📖"
+        elif level == "TUR": icon = "📋"
+        elif level == "ZORLUK": icon = "⭐"
+        
+        display_name = f"{icon} {folder_name}"
 
+        # Klasörü ağaca ekle
         item_id = self.tree_view.insert(
             parent_id, "end",
             text=display_name,
-            
+            # --- ÇOK ÖNEMLİ: Tam yolu 'values' içine saklıyoruz ---
+            values=[folder_path] 
         )
 
-        if not self.search_entry.get().strip() and children:
-            for child_path, child_info in children.items():
-                self.add_folder_to_treeview(item_id, child_path, child_info)
+        # --- TEMBEL YÜKLEME SİHRİ ---
+        # Eğer bu bir 'Zorluk' klasörü değilse (daha alta inebilir)
+        if level != "ZORLUK" and has_children:
+            self.tree_view.insert(item_id, "end", text="Yükleniyor...")
+        
 
         return item_id
-
+    
     def klasor_secildi(self, klasor_yolu):
         """Klasör seçildiğinde"""
         logger.info(f"Klasör seçildi: {klasor_yolu}")
@@ -493,7 +563,7 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
         self.search_timer = self.after(300, self.perform_search)
 
     def perform_search(self):
-        """Gerçek arama işlemini yap"""
+        """Gerçek arama işlemini yap (Tembel Yükleme'ye uygun)"""
         search_text = self.search_entry.get().strip()
         
         # Loading'i temizle
@@ -506,85 +576,26 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
             else:
                 self.search_loading_label.configure(text="")
             self.search_results = []
-            self.display_tree()
+            self.display_tree(self.ana_klasor_yolu) # Normal moda dön
             return
         
-        # Arama yap
-        self.search_results = self.search_folders_recursive(search_text.lower())
+        # --- ARAMA DEĞİŞİKLİĞİ ---
+        logger.info(f"'{search_text}' için diskte arama başlatılıyor...")
+        self.search_loading_label.configure(text="⏳")
+        
+        # Ağır işi "Beyin" yapar (ŞİMDİLİK DONACAK, Aşama 3'te düzelecek)
+        self.search_results = self.beyin.search_folders_and_parents(search_text)
+        
+        self.search_loading_label.configure(text="")
+        logger.info(f"Arama tamamlandı, {len(self.search_results)} sonuç bulundu.")
+        # --- BİTTİ ---
         
         # Sonuçları göster
-        self.display_tree()
+        self.display_tree() # Bu populate_treeview_with_search'ü tetikleyecek
         
         # Sonuç sayısını göster
         self.search_loading_label.configure(text="")
-
-    def search_folders_recursive(self, search_text):
-        """Hiyerarşik arama yap - eşleşen klasörün tüm alt yapısını göster"""
-        matched_folders = []
-        self.search_recursive_helper(search_text, self.beyin.tree_data, matched_folders, [])
         
-        # Eşleşen klasörlerin alt yapısını da ekle
-        enhanced_results = []
-        for result in matched_folders:
-            enhanced_results.append(result)
-            # Bu klasörün alt klasörlerini de ekle
-            self.add_children_to_results(result['path'], result['info'], enhanced_results)
-        return enhanced_results
-
-    def add_children_to_results(self, folder_path, folder_info, results):
-        """Eşleşen klasörün alt klasörlerini sonuçlara ekle"""
-        if not folder_info['children']:
-            return
-        
-        # Alt klasörleri ekle
-        for child_path, child_info in folder_info['children'].items():
-            # Alt klasörü sonuçlara ekle
-            results.append({
-                'path': child_path,
-                'info': child_info,
-                'parent_path': [folder_path],
-                'match_type': 'child'
-            })
-            
-            # Bu alt klasörün de çocukları varsa onları da ekle
-            if child_info['children']:
-                for grandchild_path, grandchild_info in child_info['children'].items():
-                    results.append({
-                        'path': grandchild_path,
-                        'info': grandchild_info,
-                        'parent_path': [folder_path, child_path],
-                        'match_type': 'grandchild'
-                    })
-                    
-                    # Büyük torunları da ekle (test/yazılı altındaki kolay/orta/zor)
-                    if grandchild_info['children']:
-                        for great_grandchild_path, great_grandchild_info in grandchild_info['children'].items():
-                            results.append({
-                                'path': great_grandchild_path,
-                                'info': great_grandchild_info,
-                                'parent_path': [folder_path, child_path, grandchild_path],
-                                'match_type': 'great_grandchild'
-                            })
-
-    def search_recursive_helper(self, search_text, folders, matched_folders, parent_path):
-        """Recursive arama yardımcı fonksiyonu"""
-        for folder_path, folder_info in folders.items():
-            folder_name = folder_info['name']
-            
-            # Klasör adında arama yap
-            if search_text in folder_name.lower():
-                matched_folders.append({
-                    'path': folder_path,
-                    'info': folder_info,
-                    'parent_path': parent_path.copy(),
-                    'match_type': 'exact' if search_text == folder_name.lower() else 'partial'
-                })
-            
-            # Alt klasörlerde de ara
-            if folder_info['children']:
-                new_parent_path = parent_path + [folder_path]
-                self.search_recursive_helper(search_text, folder_info['children'], matched_folders, new_parent_path)
-
     def klasor_secildi(self, klasor_yolu):
         """Klasör seçildiğinde"""
         logger.info(f"Klasör seçildi: {klasor_yolu}")

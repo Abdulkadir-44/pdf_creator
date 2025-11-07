@@ -18,10 +18,7 @@ class ResimYonetimiBeyni:
         self._count_cache = {}
         self._size_cache = {}
         self.ana_klasor_yolu = None
-        self.tree_data = {}  # Ağaç veri yapısı
-        self.folder_stats = {}  # Klasör istatistikleri
         self._thumb_cache = {} # PIL Thumbnail cache (PIL.Image nesneleri tutar)
-        # self._thumb_cache = {} # (Bu daha sonra taşınacak)
 
 
     def set_ana_klasor(self, path: str):
@@ -74,6 +71,19 @@ class ResimYonetimiBeyni:
         self._thumb_cache.clear()
         logger.debug("Beyin önbellekleri (sayım, boyut) temizlendi.")
 
+    def _has_subfolders(self, folder_path: str) -> bool:
+        """
+        Bir klasörün HİÇ alt klasörü olup olmadığını HIZLICA kontrol eder.
+        Dosyaları saymaz, sadece bir alt klasör bulduğu an True döner.
+        """
+        try:
+            for item in os.listdir(folder_path):
+                if os.path.isdir(os.path.join(folder_path, item)):
+                    return True # Bir tane bile bulduysa, [+] gerekir
+            return False # Döngü bitti, hiç alt klasör yok
+        except Exception:
+            return False # Erişim hatası vb.
+        
     def get_pil_thumbnail(self, path: str, max_size: tuple = (180, 180)):
         """
         Bir resmin PIL.Image thumbnail'ını üretir ve cache'ler.
@@ -91,7 +101,6 @@ class ResimYonetimiBeyni:
         except Exception as e:
             logger.warning(f"PIL thumbnail üretilemedi: {path} -> {e}")
             return None
-
 
     def kopyala_resim(self, src_path: str, hedef_yol: str):
         """Sadece kopyalama işini yapar."""
@@ -209,88 +218,120 @@ class ResimYonetimiBeyni:
             return True
         except Exception:
             return False
-        
-    def build_tree_structure(self, root_path):
-        """Ağaç veri yapısını oluştur"""
-        self.tree_data = {}
-        
+    
+    def _has_subfolders(self, folder_path: str) -> bool:
+        """
+        Bir klasörün HİÇ alt klasörü olup olmadığını HIZLICA kontrol eder.
+        (Bunu zaten eklemiştik, ama burada da kullanılacak. Eğer eklemediysen ekle.)
+        """
         try:
-            items = os.listdir(root_path)
-            folders = [item for item in items if os.path.isdir(os.path.join(root_path, item))]
-            
-            for folder in sorted(folders):
-                folder_path = os.path.join(root_path, folder)
-                self.tree_data[folder_path] = {
-                    'name': folder,
-                    'path': folder_path,
-                    'children': self.get_children(folder_path),
-                    'level': 0,
-                    'parent': None
-                }
-                
-        except PermissionError:
-            logger.warning(f"Klasöre erişim izni yok: {root_path}")
-        except Exception as e:
-            logger.error(f"Ağaç yapısı oluşturma hatası: {e}", exc_info=True)
+            for item in os.listdir(folder_path):
+                if os.path.isdir(os.path.join(folder_path, item)):
+                    return True 
+            return False 
+        except Exception:
+            return False 
 
-    def get_children(self, folder_path, level=1):
-        """Klasörün alt klasörlerini al"""
-        children = {}
+    def search_folders_and_parents(self, search_text: str) -> list:
+        """
+        Diskte arama yapar ve eşleşen klasörleri + ebeveynlerini döndürür.
+        """
+        if not self.ana_klasor_yolu:
+            return []
+
+        # --- DÜZELTME 1: Ana yolu BİR KEZ normalleştir ---
+        norm_ana_klasor_yolu = os.path.normpath(self.ana_klasor_yolu)
+
+        search_text_lower = search_text.lower()
+        results_map = {} 
+
+        # --- DÜZELTME 2: Normalleştirilmiş yolu kullan ---
+        for root, dirs, files in os.walk(norm_ana_klasor_yolu, topdown=True):
+            relative_root = os.path.relpath(root, norm_ana_klasor_yolu)
+            
+            # Eğer '.' değilse (yani ana klasörün kendisi değilse)
+            if relative_root != '.':
+                depth = len(relative_root.split(os.sep))
+                
+                # Dediğin gibi: Sadece Ders (depth=1) ve Konu (depth=2)
+                # seviyelerinin altındaki klasörleri (Test/Zorluk) arama.
+                if depth >= 2:
+                    dirs.clear() # os.walk'un daha derine inmesini engelle
+                    continue     # Bu 'root'u atla, bir sonraki 'root'a geç
+                
+            for dir_name in dirs:
+                if search_text_lower in dir_name.lower():
+                    
+                    current_path = os.path.join(root, dir_name)
+                    has_children = self._has_subfolders(current_path)
+
+                    # --- DÜZELTME 3: Normalleştirilmiş yola göre 'relative' al ---
+                    relative_path = os.path.relpath(current_path, norm_ana_klasor_yolu)
+                    
+                    parts = relative_path.split(os.sep)
+                    results_map[current_path] = {
+                        'path': current_path,
+                        'name': dir_name,
+                        'has_children': has_children,
+                        'parts': parts
+                    }
+                    
+                    parent_path = root
+                    
+                    # --- DÜZELTME 4 (En önemlisi): Karşılaştırmayı normalleştir ---
+                    while os.path.normpath(parent_path) != norm_ana_klasor_yolu:
+                        if parent_path in results_map:
+                            break 
+
+                        parent_name = os.path.basename(parent_path)
+                        
+                        # --- DÜZELTME 5: Normalleştirilmiş yola göre 'relative' al ---
+                        relative_path = os.path.relpath(parent_path, norm_ana_klasor_yolu)
+                        
+                        parts = relative_path.split(os.sep)
+                        # --- EĞER . (dot) DÖNERSE ATLA ---
+                        if parts == ['.']:
+                            break
+                            
+                        results_map[parent_path] = {
+                            'path': parent_path,
+                            'name': parent_name,
+                            'has_children': False,
+                            'parts': parts
+                        }
+                        parent_path = os.path.dirname(parent_path)
+
+        sorted_results = sorted(results_map.values(), key=lambda x: len(x['parts']))
+        return sorted_results
+    
+    def get_sadece_alt_klasorler(self, folder_path: str) -> list:
+        """
+        Sadece BİR alt seviyedeki klasörleri getirir.
+        YENİ: Artık (isim, tam_yol, alt_klasoru_var_mi) döndürür.
+        """
+        if not os.path.exists(folder_path):
+            return []
+        
+        children = []
         try:
-            items = os.listdir(folder_path)
-            folders = [item for item in items if os.path.isdir(os.path.join(folder_path, item))]
+            for item in os.listdir(folder_path):
+                child_path = os.path.join(folder_path, item)
+                if os.path.isdir(child_path):
+                    
+                    # --- DEĞİŞİKLİK BURADA ---
+                    # Bu yeni alt klasörün KENDİ alt klasörü var mı?
+                    has_children = self._has_subfolders(child_path)
+                    
+                    # (İsim, Tam Yol, AltKlasoruVarMi) tuple'ı olarak ekliyoruz
+                    children.append((item, child_path, has_children))
             
-            for folder in sorted(folders):
-                child_path = os.path.join(folder_path, folder)
-                children[child_path] = {
-                    'name': folder,
-                    'path': child_path,
-                    'children': self.get_children(child_path, level + 1),
-                    'level': level,
-                    'parent': folder_path
-                }
-                
+            # İsimlere göre alfabetik sırala
+            children.sort(key=lambda x: x[0].lower())
+            return children
+        
         except PermissionError:
-            logger.warning(f"Klasöre erişim izni yok: {folder_path}")
+            logger.warning(f"Bu klasöre erişim izni yok: {folder_path}")
+            return []
         except Exception as e:
-            logger.error(f"Alt klasör alma hatası: {e}", exc_info=True)
-            
-        return children
-
-    def calculate_folder_stats(self):
-        """Klasör istatistiklerini hesapla"""
-        logger.info("Klasör istatistikleri hesaplanıyor...")
-        self.folder_stats = {}
-        
-        # Tüm klasörleri recursive olarak işle
-        self.calculate_stats_recursive(self.tree_data)
-        
-    def calculate_stats_recursive(self, folders):
-        """Klasör istatistiklerini recursive olarak hesapla"""
-        for folder_path, folder_info in folders.items():
-            try:
-                # Resim dosyalarını say
-                resim_uzantilari = ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff')
-                resim_sayisi = 0
-                toplam_boyut = 0
-                
-                for dosya in os.listdir(folder_path):
-                    if dosya.lower().endswith(resim_uzantilari):
-                        resim_sayisi += 1
-                        try:
-                            toplam_boyut += os.path.getsize(os.path.join(folder_path, dosya))
-                        except:
-                            pass
-                
-                self.folder_stats[folder_path] = {
-                    'resim_sayisi': resim_sayisi,
-                    'toplam_boyut': toplam_boyut
-                }
-                
-                # Alt klasörleri de işle
-                if folder_info['children']:
-                    self.calculate_stats_recursive(folder_info['children'])
-                
-            except Exception as e:
-                logger.warning(f"Klasör istatistiği hesaplanamadı: {folder_path} - {e}")
-                self.folder_stats[folder_path] = {'resim_sayisi': 0, 'toplam_boyut': 0}
+            logger.error(f"Alt klasörler alınamadı: {folder_path} - {e}")
+            return []
