@@ -121,12 +121,7 @@ class KontrolPaneli(ctk.CTkFrame):
             soru_no = global_offset + i + 1
             
             try:
-                # DİKKAT: 'get_answer_for_image'i import etmedik.
-                # Ana controller'daki 'answer_utils' importunu kullanıyoruz
-                # (veya en iyisi, 'get_answer_for_image'i controller'a taşıyalım...
-                # Şimdilik ana import'a güveniyoruz)
-                from logic.answer_utils import get_answer_for_image
-                cevap = get_answer_for_image(gorsel_path)
+                cevap = self.controller.oturum_yoneticisi.get_answer_for_image(gorsel_path)
             except Exception:
                 cevap = "?"
     

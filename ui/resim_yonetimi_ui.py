@@ -938,74 +938,74 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
         except Exception as e:
             logger.error(f"Seçili resimleri göstermek başarısız: {e}", exc_info=True)
             
-    def create_selected_image_widget(self, resim_yolu, dosya_adi, index):
-        """Seçilen resim widget'ı oluştur"""
-        try:
-            # Resim frame'i
-            image_frame = ctk.CTkFrame(self.selected_images_scroll, fg_color="white")
+    # def create_selected_image_widget(self, resim_yolu, dosya_adi, index):
+    #     """Seçilen resim widget'ı oluştur"""
+    #     try:
+    #         # Resim frame'i
+    #         image_frame = ctk.CTkFrame(self.selected_images_scroll, fg_color="white")
             
-            # Grid pozisyonu hesapla (3 sütunlu grid)
-            row = index // 3
-            col = index % 3
-            image_frame.grid(row=row, column=col, padx=5, pady=5, sticky="nsew")
+    #         # Grid pozisyonu hesapla (3 sütunlu grid)
+    #         row = index // 3
+    #         col = index % 3
+    #         image_frame.grid(row=row, column=col, padx=5, pady=5, sticky="nsew")
             
-            # Grid ağırlık ayarları
-            self.selected_images_scroll.grid_columnconfigure(col, weight=1)
+    #         # Grid ağırlık ayarları
+    #         self.selected_images_scroll.grid_columnconfigure(col, weight=1)
 
-            # Resmi yükle ve boyutlandır
-            pil_image = Image.open(resim_yolu)
-            # Daha büyük thumbnail boyutu
-            pil_image.thumbnail((200, 200), Image.Resampling.LANCZOS)
-            photo = ImageTk.PhotoImage(pil_image)
+    #         # Resmi yükle ve boyutlandır
+    #         pil_image = Image.open(resim_yolu)
+    #         # Daha büyük thumbnail boyutu
+    #         pil_image.thumbnail((200, 200), Image.Resampling.LANCZOS)
+    #         photo = ImageTk.PhotoImage(pil_image)
 
-            # Resim label'ı
-            image_label = ctk.CTkLabel(
-                image_frame,
-                image=photo,
-                text=""
-            )
-            image_label.image = photo  # Referansı sakla
-            image_label.pack(pady=10)
+    #         # Resim label'ı
+    #         image_label = ctk.CTkLabel(
+    #             image_frame,
+    #             image=photo,
+    #             text=""
+    #         )
+    #         image_label.image = photo  # Referansı sakla
+    #         image_label.pack(pady=10)
 
-            # Dosya adı
-            name_label = ctk.CTkLabel(
-                image_frame,
-                text=dosya_adi,
-                font=ctk.CTkFont(family="Segoe UI", size=10),
-                text_color="#2d3436",
-                wraplength=180
-            )
-            name_label.pack(pady=(0, 5))
+    #         # Dosya adı
+    #         name_label = ctk.CTkLabel(
+    #             image_frame,
+    #             text=dosya_adi,
+    #             font=ctk.CTkFont(family="Segoe UI", size=10),
+    #             text_color="#2d3436",
+    #             wraplength=180
+    #         )
+    #         name_label.pack(pady=(0, 5))
 
-            # Sil butonu
-            delete_btn = ctk.CTkButton(
-                image_frame,
-                text="🗑️ Kaldır",
-                font=ctk.CTkFont(family="Segoe UI", size=10),
-                fg_color="#dc3545",
-                text_color="white",
-                hover_color="#c82333",
-                width=80,
-                height=25,
-                command=lambda path=resim_yolu, name=dosya_adi, idx=index: self.remove_selected_image(path, name, idx)
-            )
-            delete_btn.pack(pady=(0, 10))
+    #         # Sil butonu
+    #         delete_btn = ctk.CTkButton(
+    #             image_frame,
+    #             text="🗑️ Kaldır",
+    #             font=ctk.CTkFont(family="Segoe UI", size=10),
+    #             fg_color="#dc3545",
+    #             text_color="white",
+    #             hover_color="#c82333",
+    #             width=80,
+    #             height=25,
+    #             command=lambda path=resim_yolu, name=dosya_adi, idx=index: self.remove_selected_image(path, name, idx)
+    #         )
+    #         delete_btn.pack(pady=(0, 10))
 
-        except Exception as e:
-            logger.error(f"Seçilen resim widget'ı oluşturulurken hata: {e}", exc_info=True)
+    #     except Exception as e:
+    #         logger.error(f"Seçilen resim widget'ı oluşturulurken hata: {e}", exc_info=True)
 
-    def remove_selected_image(self, resim_yolu, dosya_adi, index):
-        """Seçilen resimden kaldır"""
-        if messagebox.askyesno("Onay", f"'{dosya_adi}' resmini seçilenlerden kaldırmak istediğinizden emin misiniz?"):
-            try:
-                # Listedeki resmi kaldır
-                self.selected_images.pop(index)
-                # Görüntüyü yenile
-                self.show_selected_images()
-                logger.info(f"Resim seçilenlerden kaldırıldı: {dosya_adi}")
-            except Exception as e:
-                logger.error(f"Resim kaldırılırken hata: {e}", exc_info=True)
-                messagebox.showerror("Hata", "Resim kaldırılırken hata oluştu.")
+    # def remove_selected_image(self, resim_yolu, dosya_adi, index):
+    #     """Seçilen resimden kaldır"""
+    #     if messagebox.askyesno("Onay", f"'{dosya_adi}' resmini seçilenlerden kaldırmak istediğinizden emin misiniz?"):
+    #         try:
+    #             # Listedeki resmi kaldır
+    #             self.selected_images.pop(index)
+    #             # Görüntüyü yenile
+    #             self.show_selected_images()
+    #             logger.info(f"Resim seçilenlerden kaldırıldı: {dosya_adi}")
+    #         except Exception as e:
+    #             logger.error(f"Resim kaldırılırken hata: {e}", exc_info=True)
+    #             messagebox.showerror("Hata", "Resim kaldırılırken hata oluştu.")
 
     def show_no_selected_images_message(self):
         """Seçilen resim bulunamadı mesajı göster"""

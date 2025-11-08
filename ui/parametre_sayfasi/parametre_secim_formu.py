@@ -303,7 +303,7 @@ class ParametreSecimFormu(ctk.CTkFrame):
                     hover_color=hover_colors[j],
                     font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
                     text_color="#ffffff",
-                    command=lambda n=num, v=var: v.set(str(n))
+                    command=lambda n=num, v=var: self._handle_entry_button_click(v, n)
                 )
                 btn.pack(side="right", padx=(0, 4))
 
@@ -435,6 +435,33 @@ class ParametreSecimFormu(ctk.CTkFrame):
         # Bilgilendirme gerekmiyorsa callback'i doğrudan çağır
         self.on_devam_et_callback(self.konu_soru_dagilimi)
 
+    def _handle_entry_button_click(self, entry_var, button_value):
+        """
+        Giriş alanını akıllıca günceller.
+        Kural: Eğer değer varsayılan '1' ise, AYARLAR (SET).
+             Eğer değer '1' değilse, EKLER (ADD).
+        """
+        try:
+            # 1. Mevcut değeri al
+            current_value_str = entry_var.get()
+            current_value_int = int(current_value_str)
+        except (ValueError, tk.TclError):
+            current_value_str = "0"
+            current_value_int = 0
+        
+        
+        # Kural 1: Değer, varsayılan '1' mi?
+        if current_value_str == "1":
+            # Evet, o zaman üzerine ekleme, değeri AYARLA (SET)
+            new_value = button_value
+        else:
+            # Kural 2: Değer '1' değil (örn: 0, 5, 11, 13).
+            # O zaman üzerine EKLE (ADD).
+            new_value = current_value_int + button_value
+            
+        entry_var.set(str(new_value))
+          
+    
     def get_available_questions(self, konu_adi, soru_tipi, zorluk):
         """Bir konu için mevcut soru sayısını döndür"""
         try:

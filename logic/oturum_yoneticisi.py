@@ -369,6 +369,9 @@ class OturumYoneticisi:
             self.logger.error(f"Konu bulma hatası: {e}")
             return None
     
+    def get_answer_for_image(self, image_path):
+        return get_answer_for_image(image_path)
+    
     def _get_sorular_per_sayfa(self):
         """Soru tipine göre sayfa başı soru sayısını döndür"""
         # STATE'İ OKU

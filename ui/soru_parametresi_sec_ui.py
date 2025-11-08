@@ -117,7 +117,6 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
         )
         self.icerik_cercevesi.pack(fill="both", expand=True, padx=10, pady=5)
 
-        # ESKİ: self.create_selection_widgets()
         # YENİ:
         self.goster_parametre_formu() # Başlangıçta Form Ekranını Göster
         self.logger.info("UI kurulumu tamamlandı")

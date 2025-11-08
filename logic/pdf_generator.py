@@ -16,35 +16,50 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 import sys
 
-# Arial (veya benzeri) fontu ReportLab'a tanıt (Türkçe 'İ' karakteri için önemli)
+
+# Fontları 'resources/fonts' klasöründen yükle
 try:
-    # Windows
-    if sys.platform == "win32":
-        arial_path = os.path.join(os.environ.get("WINDIR", "C:/Windows"), "Fonts", "arial.ttf")
-        if not os.path.exists(arial_path):
-             arial_path = os.path.join(os.environ.get("WINDIR", "C:/Windows"), "Fonts", "arialbd.ttf") # Bold dene
-    # Mac
-    elif sys.platform == "darwin":
-        arial_path = "/Library/Fonts/Arial.ttf"
-    # Linux
+    # 1. Projenin ana klasörünü bul (bu dosya logic/ içinde olduğu için iki üst dizin)
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    font_dir = os.path.join(base_dir, "resources", "fonts")
+
+    # 2. Ana fontları (Arial) tanımla
+    font_path_regular = os.path.join(font_dir, "arial.ttf")
+    font_path_bold = os.path.join(font_dir, "arialbd.ttf")
+    
+    # 3. Yedek fontları (Calibri) tanımla
+    font_path_regular_fallback = os.path.join(font_dir, "calibri.ttf")
+    font_path_bold_fallback = os.path.join(font_dir, "calibrib.ttf")
+
+    # 4. Arial'ı yüklemeyi dene, olmazsa Calibri'yi yükle
+    if os.path.exists(font_path_regular):
+        pdfmetrics.registerFont(TTFont('Arial', font_path_regular))
+        DEFAULT_FONT_REGULAR = "Arial"
+    elif os.path.exists(font_path_regular_fallback):
+        pdfmetrics.registerFont(TTFont('Arial', font_path_regular_fallback)) # Yedek fontu 'Arial' adıyla kaydet
+        DEFAULT_FONT_REGULAR = "Arial"
     else:
-        linux_paths = [
-            "/usr/share/fonts/truetype/msttcorefonts/Arial.ttf",
-            "/usr/share/fonts/liberation/LiberationSans-Regular.ttf",
-            "/usr/share/fonts/dejavu/DejaVuSans.ttf"
-        ]
-        arial_path = next((path for path in linux_paths if os.path.exists(path)), None)
-        if not arial_path:
-             arial_path = "Helvetica" # Bulamazsa varsayılan
-             
-    if os.path.exists(arial_path):
-        pdfmetrics.registerFont(TTFont('Arial', arial_path))
-        DEFAULT_FONT = "Arial"
+        logger.warning("Arial veya Calibri (regular) fontu bulunamadı. Helvetica kullanılıyor.")
+        DEFAULT_FONT_REGULAR = "Helvetica" # ReportLab varsayılanı
+
+    # 5. Arial Bold'u yüklemeyi dene, olmazsa Calibri Bold'u yükle
+    if os.path.exists(font_path_bold):
+        pdfmetrics.registerFont(TTFont('Arial-Bold', font_path_bold))
+        DEFAULT_FONT_BOLD = "Arial-Bold"
+    elif os.path.exists(font_path_bold_fallback):
+        pdfmetrics.registerFont(TTFont('Arial-Bold', font_path_bold_fallback)) # Yedek fontu 'Arial-Bold' adıyla kaydet
+        DEFAULT_FONT_BOLD = "Arial-Bold"
     else:
-        DEFAULT_FONT = "Helvetica" # Fallback
+        logger.warning("Arial veya Calibri (bold) fontu bulunamadı. Helvetica-Bold kullanılıyor.")
+        DEFAULT_FONT_BOLD = "Helvetica-Bold"
+
 except Exception as e:
-    logger.warning(f"Font yükleme hatası ({e}), Helvetica kullanılacak.")
-    DEFAULT_FONT = "Helvetica" 
+    logger.error(f"Font yükleme hatası ({e}), Helvetica kullanılacak.", exc_info=True)
+    DEFAULT_FONT_REGULAR = "Helvetica"
+    DEFAULT_FONT_BOLD = "Helvetica-Bold"
+
+# Varsayılanı ayarla (Başlık için)
+DEFAULT_FONT = DEFAULT_FONT_REGULAR
 
 
 # Yeni loglama sistemi: Bu modülün kendi logger'ını al.

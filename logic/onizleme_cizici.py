@@ -59,11 +59,27 @@ class OnizlemeCizici:
         self.logger = logger
         self.constants = constants_dict
         
-        # 'ui' klasörünün bir üst ('pdf_creator') dizinini bul
-        # __file__ -> logic/onizleme_cizici.py
-        # os.path.dirname(__file__) -> logic/
-        # os.path.dirname(os.path.dirname(__file__)) -> pdf_creator/
         self.base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        
+        font_dir = os.path.join(self.base_dir, "resources", "fonts")
+        
+        # Ana Fontlar (Arial)
+        self.font_path_regular = os.path.join(font_dir, "arial.ttf")
+        self.font_path_bold = os.path.join(font_dir, "arialbd.ttf")
+        
+        # Yedek Fontlar (Calibri)
+        self.font_path_regular_fallback = os.path.join(font_dir, "calibri.ttf")
+        self.font_path_bold_fallback = os.path.join(font_dir, "calibrib.ttf")
+
+        # Kontrol (Eğer arial.ttf bulunamazsa Calibri'yi kullan)
+        if not os.path.exists(self.font_path_regular):
+            self.logger.warning(f"Arial font not found at {self.font_path_regular}. Using Calibri fallback.")
+            self.font_path_regular = self.font_path_regular_fallback
+            
+        if not os.path.exists(self.font_path_bold):
+            self.logger.warning(f"Arial Bold font not found at {self.font_path_bold}. Using Calibri Bold fallback.")
+            self.font_path_bold = self.font_path_bold_fallback
+        
 
 
     def generate_preview_image(self, bu_sayfanin_sutunlari, global_offset, page_index):
@@ -148,12 +164,16 @@ class OnizlemeCizici:
 
         def try_font(pt):
             try:
-                return ImageFont.truetype("arial.ttf", pt)
+                # Ana fontu (Arial) yükle
+                return ImageFont.truetype(self.font_path_regular, pt)
             except Exception:
                 try:
-                    return ImageFont.truetype("DejaVuSans.ttf", pt)
+                    # Başarısız olursa yedek fontu (Calibri) yükle
+                    return ImageFont.truetype(self.font_path_regular_fallback, pt)
                 except Exception:
+                    self.logger.error("Hem Arial hem de Calibri fontları yüklenemedi. Varsayılan font kullanılıyor.")
                     return ImageFont.load_default()
+                
 
         # DİKKAT: Sabitleri 'self.constants' dict'inden al
         pt = self.constants['BASLIK_PT_MAX']
@@ -218,7 +238,7 @@ class OnizlemeCizici:
                 gorsel_path = soru_info['path']
                 soru_no = global_offset + i + 1
                 
-                x_sol_kenar = left_margin
+                x_sol_kenar = left_margin 
                 y_tavan = top_margin_pixel + i * soru_ve_cevap_yuksekligi
 
                 soru_img = Image.open(gorsel_path)
@@ -240,18 +260,20 @@ class OnizlemeCizici:
                 draw = ImageDraw.Draw(template_copy)
                 
                 try:
-                    font = ImageFont.truetype("arialbd.ttf", 24) 
-                except:
+                    # Ana BOLD fontu (Arial Bold) yükle
+                    font = ImageFont.truetype(self.font_path_bold, 24) 
+                except Exception:
                     try:
-                        font = ImageFont.truetype("arial.ttf", 24)
+                        # Yedek BOLD fontu (Calibri Bold) yükle
+                        font = ImageFont.truetype(self.font_path_bold_fallback, 24)
                     except:
                         font = ImageFont.load_default()
                 
                 numara_x = x_sol_kenar
                 if soru_no >= 10:
-                    numara_x -= (12 * scale_factor) 
+                    numara_x -= (10 * scale_factor) 
                 
-                draw.text((numara_x, y_tavan), f"{soru_no}.", fill="#000000", font=font)
+                draw.text((numara_x - 20, y_tavan), f"{soru_no}.", fill="#000000", font=font)
                 
                 self.logger.debug(f"Yazılı soru {soru_no} yerleştirildi - Boyut: {final_width}x{final_height}")
 
@@ -293,10 +315,12 @@ class OnizlemeCizici:
         
         draw = ImageDraw.Draw(template_copy)
         try:
-            numara_font = ImageFont.truetype("arialbd.ttf", soru_numara_font_size)
-        except:
+            # Ana BOLD fontu (Arial Bold) yükle
+            numara_font = ImageFont.truetype(self.font_path_bold, soru_numara_font_size)
+        except Exception:
             try:
-                numara_font = ImageFont.truetype("arial.ttf", soru_numara_font_size)
+                # Yedek BOLD fontu (Calibri Bold) yükle
+                numara_font = ImageFont.truetype(self.font_path_bold_fallback, soru_numara_font_size)
             except:
                 numara_font = ImageFont.load_default()
 
@@ -325,7 +349,7 @@ class OnizlemeCizici:
                     if soru_no >= 10:
                         numara_x -= (5 * scale_factor) 
                         
-                    draw.text((numara_x, numara_y), f"{soru_no}.", fill="#333333", font=numara_font)
+                    draw.text((numara_x + 10, numara_y), f"{soru_no}.", fill="#333333", font=numara_font)
 
                 except Exception as e:
                     self.logger.error(f"PIL Gorsel cizim hatasi: {soru_info['path']}", exc_info=True)
