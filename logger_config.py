@@ -9,7 +9,17 @@ def setup_logging():
     belirtilen özel formatla yazar.
     Bu fonksiyonun projenin başlangıcında SADECE BİR KEZ çağrılması yeterlidir.
     """
-    log_dir = "logs"
+    
+    
+    app_data_path = os.getenv('APPDATA')
+    if not app_data_path:
+        
+        app_data_path = os.path.dirname(os.path.abspath(__file__)) 
+
+    # 'C:\Users\abdul\AppData\Roaming\SoruOtomasyonSistemi\logs' yolunu oluştur
+    log_dir = os.path.join(app_data_path, "SoruOtomasyonSistemi", "logs")
+    # --- YENİ KOD BİTTİ ---
+    
     os.makedirs(log_dir, exist_ok=True)
     
     # Kök logger'ı (root logger) yapılandırıyoruz.

@@ -22,3 +22,5 @@ logs/
 # OS (İşletim Sistemi) çöp dosyaları (main'den alındı)
 .DS_Store
 Thumbs.db
+
+installer_output/
