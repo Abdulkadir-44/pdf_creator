@@ -8,3 +8,8 @@ logs/*.log
 # Proje içindeki herhangi bir yerdeki '__pycache__' klasörlerini
 # ve içindeki tüm dosyaları yok say.
 __pycache__/
+*.pyc
+
+build/
+dist/
+
