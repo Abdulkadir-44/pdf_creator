@@ -12,6 +12,55 @@ import math
 import logging
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+import sys
+
+
+# Fontları 'resources/fonts' klasöründen yükle
+try:
+    # 1. Projenin ana klasörünü bul (bu dosya logic/ içinde olduğu için iki üst dizin)
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    font_dir = os.path.join(base_dir, "resources", "fonts")
+
+    # 2. Ana fontları (Arial) tanımla
+    font_path_regular = os.path.join(font_dir, "arial.ttf")
+    font_path_bold = os.path.join(font_dir, "arialbd.ttf")
+    
+    # 3. Yedek fontları (Calibri) tanımla
+    font_path_regular_fallback = os.path.join(font_dir, "calibri.ttf")
+    font_path_bold_fallback = os.path.join(font_dir, "calibrib.ttf")
+
+    # 4. Arial'ı yüklemeyi dene, olmazsa Calibri'yi yükle
+    if os.path.exists(font_path_regular):
+        pdfmetrics.registerFont(TTFont('Arial', font_path_regular))
+        DEFAULT_FONT_REGULAR = "Arial"
+    elif os.path.exists(font_path_regular_fallback):
+        pdfmetrics.registerFont(TTFont('Arial', font_path_regular_fallback)) # Yedek fontu 'Arial' adıyla kaydet
+        DEFAULT_FONT_REGULAR = "Arial"
+    else:
+        logger.warning("Arial veya Calibri (regular) fontu bulunamadı. Helvetica kullanılıyor.")
+        DEFAULT_FONT_REGULAR = "Helvetica" # ReportLab varsayılanı
+
+    # 5. Arial Bold'u yüklemeyi dene, olmazsa Calibri Bold'u yükle
+    if os.path.exists(font_path_bold):
+        pdfmetrics.registerFont(TTFont('Arial-Bold', font_path_bold))
+        DEFAULT_FONT_BOLD = "Arial-Bold"
+    elif os.path.exists(font_path_bold_fallback):
+        pdfmetrics.registerFont(TTFont('Arial-Bold', font_path_bold_fallback)) # Yedek fontu 'Arial-Bold' adıyla kaydet
+        DEFAULT_FONT_BOLD = "Arial-Bold"
+    else:
+        logger.warning("Arial veya Calibri (bold) fontu bulunamadı. Helvetica-Bold kullanılıyor.")
+        DEFAULT_FONT_BOLD = "Helvetica-Bold"
+
+except Exception as e:
+    logger.error(f"Font yükleme hatası ({e}), Helvetica kullanılacak.", exc_info=True)
+    DEFAULT_FONT_REGULAR = "Helvetica"
+    DEFAULT_FONT_BOLD = "Helvetica-Bold"
+
+# Varsayılanı ayarla (Başlık için)
+DEFAULT_FONT = DEFAULT_FONT_REGULAR
+
 
 # Yeni loglama sistemi: Bu modülün kendi logger'ını al.
 # Adı otomatik olarak 'logic.pdf_generator' olacaktır.
@@ -35,11 +84,180 @@ class PDFCreator:
         if cevap:
             self.cevap_listesi.append(cevap)
     
+    def planla_test_duzeni(self):
+        """
+        GÜNCELLENDİ (Dinamik Boşluk):
+        Artık Sayfa 1 için farklı (daha büyük) 'top_margin',
+        diğer sayfalar için farklı (daha küçük) 'top_margin' hesaplar.
+        """
+        logger.info(f"BestFit DÜZEN PLANLAMASI (Sütunlu + Dinamik Boşluk) başlıyor - {len(self.gorsel_listesi)} soru")
+
+        # --- 1. Gerekli Sabitleri Al ---
+        page_width, page_height = A4
+        
+        # MARJİN SABİTLERİ (Dinamik olarak kullanılacak)
+        TOP_MARGIN_SAYFA_1 = 50 # Başlıklı sayfa boşluğu (Senin dosyadaki değer)
+        TOP_MARGIN_DIGER = 35   # Başlıksız sayfa boşluğu (Daha az boşluk)
+        
+        bottom_margin = 5
+        left_margin = 20
+        right_margin = 20
+        col_gap = 40
+        cols = 2
+        soru_font_size = 10
+        soru_spacing = 8
+        image_spacing = 10
+
+        usable_width = page_width - left_margin - right_margin
+        col_width = (usable_width - col_gap) / cols
+        # usable_height artık DİNAMİK
+
+        # --- 2. TÜM Soruları BİR KERE Analiz Et ---
+        tum_soru_analizi = []
+        for i, gorsel_path in enumerate(self.gorsel_listesi):
+            try:
+                with PILImage.open(gorsel_path) as img:
+                    original_width = img.width
+                    original_height = img.height
+                    img_ratio = original_width / original_height
+                    final_width = col_width * 0.98
+                    final_height = final_width / img_ratio
+                    total_height = final_height + soru_spacing + image_spacing
+                    
+                    soru_info = {
+                        'index': i, 
+                        'path': gorsel_path,
+                        'total_height': total_height,
+                        'final_size': (final_width, final_height)
+                    }
+                    tum_soru_analizi.append(soru_info)
+            except Exception as e:
+                logger.error(f"PLANLAMA - Soru {i} analiz hatası: {gorsel_path}", exc_info=True)
+                tum_soru_analizi.append({
+                    'index': i,
+                    'path': gorsel_path,
+                    'total_height': 300, 
+                    'final_size': (col_width * 0.98, 250)
+                })
+
+        # --- 3. 'BestFit' Simülasyonu (Dinamik Boşlukla) ---
+        sayfa_haritasi = []
+        kullanilan_global_indices = set()
+        toplam_soru_sayisi = len(self.gorsel_listesi)
+        
+        sayfa_no = 1 # Sayfa sayacını başlat
+
+        while len(kullanilan_global_indices) < toplam_soru_sayisi:
+            
+            # --- DİNAMİK BOŞLUK HESAPLAMASI (Loop içinde) ---
+            current_top_margin = TOP_MARGIN_SAYFA_1 if sayfa_no == 1 else TOP_MARGIN_DIGER
+            usable_height = page_height - current_top_margin - bottom_margin
+            
+            bu_sayfa_sutunlari = [[] for _ in range(cols)] 
+            
+            # Y pozisyonları (Dipten Yukarı) HESAPLAMASI (Loop içinde)
+            current_y_positions = [page_height - current_top_margin for _ in range(cols)] 
+
+            for sutun_index in range(cols):
+                while True:
+                    kalan_bosluk = current_y_positions[sutun_index] - (current_top_margin)
+                    
+                    if kalan_bosluk < 50: # Minimum sığma payı
+                        break
+
+                    uygun_sorular = []
+                    for soru in tum_soru_analizi:
+                        if soru['index'] not in kullanilan_global_indices:
+                            if soru['total_height'] <= kalan_bosluk:
+                                uygun_sorular.append(soru)
+
+                    if not uygun_sorular:
+                        break 
+
+                    secilen_soru = min(uygun_sorular, key=lambda s: (kalan_bosluk - s['total_height']))
+                    
+                    bu_sayfa_sutunlari[sutun_index].append(secilen_soru)
+                    kullanilan_global_indices.add(secilen_soru['index'])
+                    current_y_positions[sutun_index] -= (secilen_soru['total_height'] + image_spacing)
+
+            total_placed_this_page = sum(len(col) for col in bu_sayfa_sutunlari)
+            if total_placed_this_page == 0 and len(kullanilan_global_indices) < toplam_soru_sayisi:
+                logger.error("PLANLAMA - Sonsuz döngü tespit edildi! Kalan sorular sığmıyor.")
+                break 
+            
+            if total_placed_this_page > 0:
+                 sayfa_haritasi.append(bu_sayfa_sutunlari)
+
+            sayfa_no += 1 # Bir sonraki sayfa için sayacı artır
+
+        logger.info(f"PLANLAMA (Sütunlu+Dinamik) tamamlandı. {len(sayfa_haritasi)} sayfa oluşturulacak.")
+        return sayfa_haritasi
+     
     def cevap_anahtari_ekle(self, cevaplar):
         """Cevap listesini ayarla"""
         self.cevap_listesi = cevaplar
         logger.info(f"Cevap anahtari eklendi ({len(cevaplar)} cevap)")
 
+    def _draw_title_on_canvas(self, canvas_obj):
+        """
+        'self.baslik_metni'ni alır ve PDF canvas'ına (ReportLab) çizer.
+        Bu, UI'daki '_draw_title_on_image'in (PIL) PDF versiyonudur.
+        """
+        if not self.baslik_metni:
+            logger.info("Başlık metni boş, çizilmiyor.")
+            return # Başlık yoksa çizme
+        
+        page_width, page_height = A4
+        
+        # PIL'deki 'i' harfini 'İ' yapma mantığını uygula
+        text_raw = (self.baslik_metni or "").strip()
+        text = text_raw.replace('i', 'İ').upper() or "QUIZ"
+        
+        # Sabitler (Bunlar UI'daki _draw_title_on_image'e benzer OLMALI)
+        # Not: 'top_margin' (soruların başladığı yer) 50pt idi.
+        # Biz de o 50pt'lik alanın tam ortasına (tepeden 25pt) çiziyoruz.
+        BASLIK_Y_POZISYONU_TEPEDEN = 35 # 50pt'lik alanın ortası
+        BASLIK_PT_MAX = 30
+        BASLIK_PT_MIN = 12
+        TITLE_MAX_W_RATIO = 0.85
+        
+        max_w_pt = page_width * TITLE_MAX_W_RATIO
+        
+        # Doğru fontu ve boyutu bul
+        pt = BASLIK_PT_MAX
+        try:
+            current_font = DEFAULT_FONT
+            canvas_obj.setFont(current_font, pt)
+        except:
+            current_font = "Helvetica"
+            canvas_obj.setFont(current_font, pt)
+            
+        w = pdfmetrics.stringWidth(text, current_font, pt)
+        
+        while pt > BASLIK_PT_MIN and w > max_w_pt:
+            pt -= 1
+            canvas_obj.setFont(current_font, pt)
+            w = pdfmetrics.stringWidth(text, current_font, pt)
+
+        # Kısaltma (UI'daki gibi)
+        if w > max_w_pt and len(text) > 5:
+            t = text
+            while len(t) > 5:
+                t = t[:-2] + "…"
+                w = pdfmetrics.stringWidth(t, current_font, pt)
+                if w <= max_w_pt:
+                    text = t
+                    break
+        
+        # Ortala ve Çiz
+        # Y ekseni (Dipten yukarı)
+        y_pos = page_height - BASLIK_Y_POZISYONU_TEPEDEN
+        
+        canvas_obj.setFillColorRGB(0.5, 0, 0) # Koyu kırmızı (darkred)
+        canvas_obj.drawCentredString(page_width / 2, y_pos, text)
+        
+        logger.info(f"PDF Başlığı çizildi: {text}")
+        
     def _create_yazili_layout(self, canvas_obj, gorseller, sayfa_no, page_width, page_height):
         """Yazili sablonu layout'u - Dinamik iyilestirilmis versiyon"""
         top_margin = page_height * 0.12
@@ -167,9 +385,23 @@ class PDFCreator:
             logger.error(f"Sayfa {sayfa_no} olusturma hatasi", exc_info=True)
             return 0
 
-    def _create_working_test_layout(self, canvas_obj, gorseller, sayfa_indices, sayfa_no, page_width, page_height, global_offset):
-        """Calisan test layout sistemi"""
-        top_margin = 35
+    def _create_working_test_layout(self, canvas_obj, bu_sayfanin_sutunlari, sayfa_no, page_width, page_height, global_offset):
+        """
+        GÜNCELLENDİ (TEK BEYİN):
+        Artık 'BestFit' HESAPLAMAZ.
+        'planla_test_duzeni'nden gelen HAZIR SÜTUNLU PLANI alır ve çizer.
+        """
+        logger.info(f"PDF Sayfa {sayfa_no} çiziliyor (Hazır Plana Göre) - {sum(len(s) for s in bu_sayfanin_sutunlari)} soru")
+        
+        # --- PDF GENERATOR SABİTLERİ (DİNAMİK) ---
+        
+        # --- DİNAMİK BOŞLUK HESAPLAMASI ---
+        if sayfa_no == 1:
+            top_margin = 50 # Başlıklı sayfa boşluğu (Senin dosyadaki değer)
+        else:
+            top_margin = 35 # Başlıksız sayfa boşluğu (Daha az boşluk)
+        # --- BİTTİ ---
+            
         bottom_margin = 5
         left_margin = 20
         right_margin = 20
@@ -181,150 +413,153 @@ class PDFCreator:
 
         usable_width = page_width - left_margin - right_margin
         col_width = (usable_width - col_gap) / cols
-        usable_height = page_height - top_margin - bottom_margin
-
+        
+        # Y ekseni DİPTEN YUKARI (Dinamik top_margin'e göre)
+        current_y_positions_dip = [page_height - top_margin for _ in range(cols)]
         current_x_positions = [left_margin + i * (col_width + col_gap) for i in range(cols)]
-        current_y_positions = [page_height - top_margin for _ in range(cols)]
 
-        soru_analizi = []
-        for i, gorsel_path in enumerate(gorseller):
-            try:
-                with PILImage.open(gorsel_path) as img:
-                    original_width = img.width
-                    original_height = img.height
-                    img_ratio = original_width / original_height
-
-                    final_width = col_width * 0.98
-                    final_height = final_width / img_ratio
-
-                    total_height = final_height + soru_spacing + image_spacing
-
-                    if total_height < 150:
-                        kategori = 'KISA'
-                    elif total_height < 300:
-                        kategori = 'ORTA'
-                    else:
-                        kategori = 'UZUN'
-
-                    soru_info = {
-                        'index': i,
-                        'path': gorsel_path,
-                        'filename': os.path.basename(gorsel_path),
-                        'final_size': (final_width, final_height),
-                        'total_height': total_height,
-                        'kategori': kategori
-                    }
-                    soru_analizi.append(soru_info)
-            except Exception as e:
-                logger.error(f"Soru {i+1} analiz hatasi: {gorsel_path}", exc_info=True)
-                soru_info = {
-                    'index': i,
-                    'path': gorsel_path,
-                    'filename': os.path.basename(gorsel_path),
-                    'final_size': (col_width * 0.98, 250),
-                    'total_height': 300,
-                    'kategori': 'ORTA'
-                }
-                soru_analizi.append(soru_info)
-
-        yerlestirildi_sayisi = 0
-        kullanilan_indices = set()
+        yerlestirildi_sayisi = 0 # Sıralı numara için
 
         for sutun_index in range(cols):
-            while True:
-                kalan_bosluk = current_y_positions[sutun_index] - bottom_margin
-                if kalan_bosluk < 50:
-                    break
-
-                uygun_sorular = []
-                for soru in soru_analizi:
-                    if soru['index'] in kullanilan_indices:
-                        continue
-                    if soru['total_height'] <= kalan_bosluk:
-                        uygun_sorular.append(soru)
-
-                if not uygun_sorular:
-                    break
-
-                secilen_soru = min(uygun_sorular, key=lambda s: (kalan_bosluk - s['total_height']))
-                img_x = current_x_positions[sutun_index]
-                soru_y = current_y_positions[sutun_index] - soru_font_size
-                img_y = soru_y - soru_spacing - secilen_soru['final_size'][1]
-
+            sutun_sorulari = bu_sayfanin_sutunlari[sutun_index]
+            img_x = current_x_positions[sutun_index]
+            
+            for soru_info in sutun_sorulari:
+                
+                img_w, img_h = soru_info['final_size'] # Plandan gelen (pt cinsinden)
+                
+                pdf_y_bottom = current_y_positions_dip[sutun_index] - img_h
+                
                 try:
                     canvas_obj.drawImage(
-                        secilen_soru['path'],
-                        img_x, img_y,
-                        width=secilen_soru['final_size'][0],
-                        height=secilen_soru['final_size'][1]
+                        soru_info['path'],
+                        img_x, pdf_y_bottom, # (x, y_sol_alt)
+                        width=img_w,
+                        height=img_h
                     )
+                    
                     canvas_obj.setFont("Helvetica-Bold", soru_font_size)
                     canvas_obj.setFillColor("#333333")
+                    
+                    # <<< SIRALI NUMARA ÇÖZÜMÜ >>>
                     toplam_soru_no = global_offset + yerlestirildi_sayisi + 1
+                    
                     cift_haneli_offset = -2 if toplam_soru_no >= 10 else 0
                     numara_x = img_x - 10 + cift_haneli_offset
-                    numara_y = img_y + secilen_soru['final_size'][1] - 10
+                    numara_y = pdf_y_bottom + img_h - 10 # Resmin sağ üstüne yakın
+                    
                     canvas_obj.drawString(numara_x, numara_y, f"{toplam_soru_no}.")
+
                 except Exception as e:
-                    logger.error(f"Gorsel cizim hatasi: {secilen_soru['path']}", exc_info=True)
+                    logger.error(f"PDF Gorsel cizim hatasi: {soru_info['path']}", exc_info=True)
                     continue
 
-                current_y_positions[sutun_index] = img_y - image_spacing
-                kullanilan_indices.add(secilen_soru['index'])
+                # Y pozisyonunu güncelle (Dipten yukarı mantıkta Y azalır)
+                current_y_positions_dip[sutun_index] = pdf_y_bottom - image_spacing
                 yerlestirildi_sayisi += 1
 
-        logger.info(f"Test layout tamamlandi - {yerlestirildi_sayisi} soru yerlestirildi")
-        kullanilan_global_indices = set(sayfa_indices[i] for i in kullanilan_indices if i < len(sayfa_indices))
-        return yerlestirildi_sayisi, kullanilan_global_indices
-
-    def kaydet(self, dosya_yolu):
-        """Düzeltilmiş PDF kaydetme fonksiyonu"""
+        # 'kullanilan_set' artık 'kaydet' fonksiyonu tarafından bilinmiyor,
+        # sadece yerleşen sayısını dönmemiz yeterli.
+        return yerlestirildi_sayisi, set()
+    
+    def kaydet(self, dosya_yolu, sayfa_haritasi=None):
+        """
+        GÜNCELLENDİ (DİNAMİK ŞABLON):
+        Artık 'sayfa_haritasi'nı (Önizlemenin kullandığı planı) parametre olarak alır.
+        Başlığı SADECE 1. SAYFAYA çizer.
+        Şablonu SADECE 1. SAYFA için 'template.png'/'template2.png',
+        diğer sayfalar için 'template3.png'/'template4.png' olarak seçer.
+        """
         try:
             logger.info(f"PDF oluşturma başlıyor: Tip={self.soru_tipi}, Dosya={os.path.basename(dosya_yolu)}")
             self.global_soru_sayaci = 0
 
             current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            template_name = "template2.png" if self.soru_tipi.lower() == "yazili" else "template.png"
-            template_path = os.path.join(current_dir, "templates", template_name)
-
-            if not os.path.exists(template_path):
-                logger.warning("Şablon bulunamadı, basit PDF oluşturuluyor")
-                return self._basit_pdf_olustur(dosya_yolu)
+            templates_dir = os.path.join(current_dir, "templates")
 
             c = canvas.Canvas(dosya_yolu, pagesize=A4)
-            kalan_sorular = list(range(len(self.gorsel_listesi)))
-            sayfa_no = 1
-            max_sayfa = 50
 
-            sayfa_basi_soru = 2 if self.soru_tipi.lower() == "yazili" else 8
-
-            while kalan_sorular and sayfa_no <= max_sayfa:
-                c.drawImage(template_path, 0, 0, width=A4[0], height=A4[1])
-
-                bu_sayfa_soru_sayisi = min(len(kalan_sorular), sayfa_basi_soru)
-                sayfa_gorselleri = [self.gorsel_listesi[i] for i in kalan_sorular[:bu_sayfa_soru_sayisi]]
-                sayfa_indices = kalan_sorular[:bu_sayfa_soru_sayisi]
-
-                if self.soru_tipi.lower() == "yazili":
-                    yerlestirildi = self._create_yazili_layout_simple(
-                        c, sayfa_gorselleri, sayfa_no, A4[0], A4[1], self.global_soru_sayaci
-                    )
-                    kullanilan_set = set(sayfa_indices[:yerlestirildi])
+            # --- YENİ MANTIK (TEK BEYİN) ---
+            
+            if sayfa_haritasi is None:
+                logger.warning("Kaydet fonksiyonuna harita gelmedi. Plan yeniden hesaplanıyor.")
+                if not hasattr(self, 'planla_test_duzeni'):
+                     logger.error("HATA: planla_test_duzeni fonksiyonu PDFCreator'da bulunamadı!")
+                     return False
+                     
+                if self.soru_tipi.lower() == "test":
+                    sayfa_haritasi = self.planla_test_duzeni()
+                else: # Yazılı için basit planlama
+                    soru_listesi = [
+                        {'index': i, 'path': path, 'total_height': 500, 'final_size': (500, 400)}
+                        for i, path in enumerate(self.gorsel_listesi)
+                    ]
+                    sayfa_listesi = []
+                    for i in range(0, len(soru_listesi), 2):
+                        sayfa_listesi.append([ soru_listesi[i:i+2], [] ])
+                    sayfa_haritasi = sayfa_listesi
+            
+            # --- GÜNCELLEME: 'enumerate' KULLANARAK SAYFA İNDEKSİNİ (i) AL ---
+            for i, bu_sayfanin_sutunlari in enumerate(sayfa_haritasi):
+                sayfa_no = i + 1 # Sayfa 1 (i=0), Sayfa 2 (i=1)
+                soru_tipi_lower = self.soru_tipi.lower()
+                
+                # --- YENİ DİNAMİK ŞABLON SEÇİMİ ---
+                if sayfa_no == 1:
+                    # Sayfa 1: Başlıklı şablonlar
+                    template_name = "template2.png" if soru_tipi_lower == "yazili" else "template.png"
+                    template_name_fallback = template_name
                 else:
-                    yerlestirildi, kullanilan_set = self._create_working_test_layout(
-                        c, sayfa_gorselleri, sayfa_indices, sayfa_no, A4[0], A4[1], self.global_soru_sayaci
+                    # Sayfa 2+: Başlıksız şablonlar
+                    template_name = "template4.png" if soru_tipi_lower == "yazili" else "template3.png"
+                    # Fallback (eğer template3/4 yoksa, başlıklıyı kullan)
+                    template_name_fallback = "template2.png" if soru_tipi_lower == "yazili" else "template.png"
+                
+                template_path = os.path.join(templates_dir, template_name)
+                
+                # Şablonu kontrol et, yoksa fallback kullan
+                if not os.path.exists(template_path):
+                    logger.warning(f"Dinamik şablon '{template_name}' bulunamadı. Fallback '{template_name_fallback}' kullanılıyor.")
+                    template_path = os.path.join(templates_dir, template_name_fallback)
+                    
+                    if not os.path.exists(template_path):
+                         logger.error(f"Fallback şablon '{template_name_fallback}' dahi bulunamadı!")
+                         return False # Kritik hata
+                # --- DİNAMİK ŞABLON BİTTİ ---
+
+                # 1. Şablonu çiz
+                c.drawImage(template_path, 0, 0, width=A4[0], height=A4[1])
+                
+                # 2. Başlığı SADECE 1. SAYFADA ÇİZ
+                if sayfa_no == 1:
+                    if hasattr(self, '_draw_title_on_canvas'):
+                        self._draw_title_on_canvas(c) 
+                    else:
+                        logger.warning("'_draw_title_on_canvas' fonksiyonu bulunamadı, başlık çizilemiyor.")
+                
+                # 3. Soruları çiz
+                total_placed_on_prev_pages = self.global_soru_sayaci
+                
+                if soru_tipi_lower == "yazili":
+                    soru_listesi_duz = []
+                    for sutun in bu_sayfanin_sutunlari:
+                        soru_listesi_duz.extend(sutun)
+                    gorseller = [info['path'] for info in soru_listesi_duz]
+                    yerlestirildi = self._create_yazili_layout_simple(
+                        c, gorseller, sayfa_no, A4[0], A4[1], total_placed_on_prev_pages
+                    )
+                else:
+                    yerlestirildi, _ = self._create_working_test_layout(
+                        c, bu_sayfanin_sutunlari, sayfa_no, A4[0], A4[1], total_placed_on_prev_pages
                     )
 
                 self.global_soru_sayaci += yerlestirildi
-                if yerlestirildi == 0:
-                    logger.warning("Hiç soru yerleştirilemedi - Döngü sonlandırılıyor")
-                    break
                 
-                kalan_sorular = [i for i in kalan_sorular if i not in kullanilan_set]
-                if kalan_sorular:
+                if sayfa_no < len(sayfa_haritasi): # Son sayfa değilse
                     c.showPage()
-                    sayfa_no += 1
             
+            # --- YENİ MANTIK BİTTİ ---
+
             if self.cevap_listesi and len(self.cevap_listesi) > 0:
                 c.showPage()
                 self.create_answer_key_page(c)
@@ -340,17 +575,28 @@ class PDFCreator:
             print(f"❌ PDF KAYDETME HATASI: {e}")
             logger.error(f"PDF kaydetme işleminde kritik hata", exc_info=True)
             return False
-
+         
     def _create_yazili_layout_simple(self, canvas_obj, gorseller, sayfa_no, page_width, page_height, global_offset):
-        """Yazılı için basit layout - sayfa başına maksimum 2 soru"""
+        """
+        Yazılı için basit layout - sayfa başına maksimum 2 soru
+        GÜNCELLENDİ: 'sayfa_no'ya göre dinamik 'top_margin' kullanır (Boşluk sorunu çözümü).
+        GÜNCELLENDİ: 'drawString' X pozisyonu 'img_x' (resim kenarı) DEĞİL, 'left_margin' (sayfa kenarı) kullanır (Numara hizalama çözümü).
+        GÜNCELLENDİ: Renk siyah, font boyutu küçültüldü (Stil çözümü).
+        GÜNCELLENDİ: Çift haneli sayılar için X pozisyonu ayarlandı (İç içe girme sorunu çözümü).
+        """
         logger.info(f"Yazılı basit layout - Sayfa {sayfa_no}, {len(gorseller)} soru")
         max_soru_sayisi = min(len(gorseller), 2)
 
-        top_margin = page_height * 0.12
+        # --- 1. DİNAMİK BOŞLUK ÇÖZÜMÜ (PDF/ReportLab pt) ---
+        if sayfa_no == 1:
+            top_margin = 50 # Başlıklı (50pt - senin ayarın)
+        else:
+            top_margin = 35 # Başlıksız (35pt - daha az boşluk)
+
         left_margin = page_width * 0.05
         right_margin = page_width * 0.05
         bottom_margin = page_height * 0.08
-
+        
         usable_width = page_width - left_margin - right_margin
         usable_height = page_height - top_margin - bottom_margin
 
@@ -362,12 +608,13 @@ class PDFCreator:
                 break
             try:
                 gorsel_path = gorseller[i]
-                soru_start_y = top_margin + i * soru_area_height
+                soru_start_y = top_margin + i * soru_area_height # Tepeden DİNAMİK boşluk
+                
                 with PILImage.open(gorsel_path) as img:
                     original_width, original_height = img.width, img.height
                     img_ratio = original_width / original_height
                     max_img_width = usable_width * 0.95
-                    max_img_height = soru_area_height * 0.8
+                    max_img_height = soru_area_height * 0.8 # Soru alanı
 
                     if img_ratio > (max_img_width / max_img_height):
                         final_width = max_img_width
@@ -376,33 +623,60 @@ class PDFCreator:
                         final_height = max_img_height
                         final_width = max_img_height * img_ratio
 
+                    # Ortalanmış X pozisyonu
                     img_x = left_margin + (usable_width - final_width) / 2
-                    img_y = page_height - soru_start_y - final_height - 20
-                    canvas_obj.drawImage(gorsel_path, img_x, img_y, width=final_width, height=final_height)
+                    
+                    # Y pozisyonu (ReportLab: Dipten Yukarı)
+                    img_y_sol_alt = (page_height - soru_start_y) - final_height
+                    
+                    canvas_obj.drawImage(gorsel_path, img_x, img_y_sol_alt, width=final_width, height=final_height)
 
                     soru_no = global_offset + i + 1
-                    canvas_obj.setFont("Helvetica-Bold", 16)
-                    canvas_obj.setFillColor("#666666")
-                    canvas_obj.drawString(left_margin - 10, img_y + final_height - 25, f"{soru_no}.")
+                    
+                    # --- 2. STİL GÜNCELLEMESİ (BOYUT VE RENK) ---
+                    # ESKİ: canvas_obj.setFont("Helvetica-Bold", 16)
+                    # YENİ: Daha küçük font
+                    canvas_obj.setFont("Helvetica-Bold", 14) 
+                    
+                    # ESKİ: canvas_obj.setFillColor("#666666")
+                    # YENİ: Siyah renk
+                    canvas_obj.setFillColorRGB(0, 0, 0)
+                    
+                    # --- 3. STİL GÜNCELLEMESİ (HİZALAMA) ---
+                    
+                    # --- ÇİFT HANE SORUNU ÇÖZÜMÜ ---
+                    # Numarayı 'left_margin' (sayfa kenarı) koordinatına çiz.
+                    numara_x = left_margin
+                    if soru_no >= 10:
+                        # Eğer sayı 10 veya üstüyse, '14pt' fontun genişliği kadar
+                        # (yaklaşık 7-8pt) sola kaydır ki '0' rakamı metne girmesin.
+                        numara_x -= 8 
+                    # --- BİTTİ ---
+                    
+                    numara_y_tepe = (img_y_sol_alt - 10) + final_height
+                    canvas_obj.drawString(numara_x, numara_y_tepe, f"{soru_no}.")
+                    
                     yerlestirildi_sayisi += 1
                     logger.info(f"✅ Yazılı soru {soru_no} yerleştirildi")
             except Exception as e:
                 logger.error(f"❌ Yazılı soru {i+1} yerleştirme hatası", exc_info=True)
         return yerlestirildi_sayisi
-
+    
     def create_answer_key_page(self, canvas_obj):
         """Cevap anahtari sayfasi olustur - Soru tipine göre farklı düzenler"""
         try:
             logger.info(f"Cevap anahtari sayfasi olusturuluyor ({len(self.cevap_listesi)} cevap) - Tip: {self.soru_tipi}")
             
             if self.soru_tipi.lower() == "yazili":
+                # Yazılı ise eski düz metin listesini kullan
                 self._create_yazili_answer_key(canvas_obj)
             else:
-                self._create_test_answer_key(canvas_obj)
+                # Test ise YENİ optik formu kullan
+                self._create_optik_cevap_anahtari(canvas_obj)
                 
         except Exception as e:
             logger.error(f"Cevap anahtari olusturma hatasi", exc_info=True)
-
+        
     def _create_test_answer_key(self, canvas_obj):
         """Test şablonu için 2 sütunlu cevap anahtarı"""
         page_width, page_height = A4
@@ -505,6 +779,109 @@ class PDFCreator:
                 canvas_obj.showPage()
         logger.info("Yazılı cevap anahtari sayfasi tamamlandi")
 
+    def _create_optik_cevap_anahtari(self, canvas_obj):
+        """
+        'BOŞ OPTİK.pdf' şablonuna göre cevap anahtarını karalar.
+        GÜNCELLENDİ: Artık 12'şerli "Blok" yapısını (1-12, 13-24, 25-36, 37-48) tanır.
+        GÜNCELLENDİ: Dikey "Kayma" sorununu çözmek için koordinatlar hassaslaştırıldı.
+        """
+        logger.info("Optik form cevap anahtarı oluşturuluyor (Bloklu Sistem)...")
+        
+        try:
+            # --- 1. ŞABLONU BUL VE ÇİZ ---
+            current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            # (Senin 'optik_form.jpg' dosya adına göre ayarlandı)
+            optik_form_path = os.path.join(current_dir, "templates", "optik_form.jpg") 
+            
+            if not os.path.exists(optik_form_path):
+                logger.error("Optik form şablonu 'templates/optik_form.jpg' bulunamadı.")
+                return self._create_test_answer_key(canvas_obj)
+                
+            page_width, page_height = A4
+            canvas_obj.drawImage(optik_form_path, 0, 0, width=page_width, height=page_height)
+
+            # --- 2. HESAPLANMIŞ "PİKSEL AVCILIĞI" SABİTLERİ (pt cinsinden) ---
+            # Senin 960x1289 resmine göre A4 (595x842) için HASSAS hesaplanmış değerler
+            
+            # --- BLOK BAŞLANGIÇ KOORDİNATLARI (HER ZAMAN "A" ŞIKKI) ---
+            # Blok 1 (Soru 1)
+            X_BLOK_1_12 = 94.09   # Paint X: 152
+            Y_BLOK_1_12 = 728.82  # Paint Y: 173 (Hesap: 841.89 - (173/1289) * 841.89)
+            
+            # Blok 2 (Soru 13)
+            X_BLOK_13_24 = 94.09  # Paint X: 152
+            Y_BLOK_13_24 = 373.10 # Paint Y: 718
+            
+            # Blok 3 (Soru 25)
+            X_BLOK_25_36 = 214.20 # Paint X: 346
+            Y_BLOK_25_36 = 728.82 # Paint Y: 173
+            
+            # Blok 4 (Soru 37)
+            X_BLOK_37_48 = 213.58 # Paint X: 345 (Hafif kayık, 346 değil)
+            Y_BLOK_37_48 = 373.10 # Paint Y: 718
+            
+            # Blok 5 (Soru 49)
+            X_BLOK_49_60 = 334.26 # Paint X: 540
+            Y_BLOK_49_60 = 728.82 # Paint Y: 173
+
+            # --- Aralıklar (Offsetler) ---
+            YATAY_SIK_ARALIGI_X = 19.75  # Paint X: 182-152=30
+            DIKEY_SORU_ARALIGI_Y = 27.29 # Paint Y: 216-173=43 (Kaymayı düzelten hassas değer)
+            DAIRE_YARICAPI_R = 5.57     # Paint R: 9
+            
+            # --- 3. HARİTALAMA VE ÇİZİM MANTIĞI ---
+            cevap_harita = {'A': 0, 'B': 1, 'C': 2, 'D': 3, 'E': 4}
+            canvas_obj.setFillColorRGB(0, 0, 0) # Karalamak için Siyah renk
+
+            for i, cevap in enumerate(self.cevap_listesi):
+                soru_no = i + 1 # 1'den başlayan soru no
+                cevap_str = str(cevap).upper()
+                
+                cevap_indexi = cevap_harita.get(cevap_str, -1)
+                if cevap_indexi == -1:
+                    logger.warning(f"Optik form: Soru {soru_no} için geçersiz cevap '{cevap}', atlanıyor.")
+                    continue 
+
+                # Hangi BLOK'ta olduğumuzu bul
+                if 1 <= soru_no <= 12:
+                    base_x = X_BLOK_1_12
+                    base_y = Y_BLOK_1_12
+                    blok_soru_indexi = i # 0'dan 11'e
+                elif 13 <= soru_no <= 24:
+                    base_x = X_BLOK_13_24
+                    base_y = Y_BLOK_13_24
+                    blok_soru_indexi = i - 12 # 0'dan 11'e
+                elif 25 <= soru_no <= 36:
+                    base_x = X_BLOK_25_36
+                    base_y = Y_BLOK_25_36
+                    blok_soru_indexi = i - 24 # 0'dan 11'e
+                elif 37 <= soru_no <= 48:
+                    base_x = X_BLOK_37_48
+                    base_y = Y_BLOK_37_48
+                    blok_soru_indexi = i - 36 # 0'dan 11'e
+                elif 49 <= soru_no <= 60:
+                    base_x = X_BLOK_49_60
+                    base_y = Y_BLOK_49_60
+                    blok_soru_indexi = i - 48 # 0'dan 11'e
+                else:
+                    logger.warning(f"Soru no {soru_no} optik form aralığı (1-60) dışındadır.")
+                    continue 
+
+                # Doğru dairenin koordinatını HESAPLA
+                x_pos = base_x + (cevap_indexi * YATAY_SIK_ARALIGI_X)
+                y_pos = base_y - (blok_soru_indexi * DIKEY_SORU_ARALIGI_Y)
+                
+                # O koordinata dolu bir daire çiz
+                canvas_obj.circle(x_pos, y_pos, DAIRE_YARICAPI_R, fill=1, stroke=0)
+            
+            logger.info("Optik form cevap anahtarı (Bloklu Sistem) başarıyla çizildi.")
+
+        except Exception as e:
+            logger.error(f"Optik cevap anahtarı oluşturma hatası: {e}", exc_info=True)
+            # Optik form bozulursa, eski düz listeyi çiz
+            logger.warning("Optik form hatası nedeniyle eski tip cevap anahtarına geçiliyor.")
+            self._create_test_answer_key(canvas_obj)
+                   
     def _basit_pdf_olustur(self, dosya_yolu):
         """Sablon bulunamazsa basit PDF olustur"""
         try:

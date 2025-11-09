@@ -1,0 +1,15 @@
+1-Klasör seçim ekrnaında çok büyük klasörler seçince örneğin masaüstü uygulama çöktü
+
+2-Klasör seçim ekranında detay paneli yazılı detaylarını göstermiyor,yani bir konuya tıklayınca konunun içindeki
+test/yazılı detaylarından test'i gösteriyor ama yazılıyı göstermiyor
+
+3-Soru parametrelerini seçtiğimiz ekranda  çıkan dialog kutusunun içi çok uzunsa kutunun içinde bulunan tamam 
+butonu çok küçülüyor
+
+4-Önizleme ekranında sorular seçili geliyor ama havuz dolduğunda seçili sorular değişiyor,bu aslında bir problem
+değil ondan dolayı burda kalsın şimdilik
+
+5-Önizleme ekranında silinen soru ,soruları güncellediğimde tekrardan geliyor (Çok denedim böyle bir problem göremedim)
+
+
+6- (opsiyonel) - cevap anahtarı optiğe yazılabilir mi ?

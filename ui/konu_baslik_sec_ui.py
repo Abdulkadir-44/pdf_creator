@@ -224,8 +224,12 @@ class KonuBaslikSecmePenceresi(ctk.CTkFrame):
         self.filter_topics()
 
     def filter_topics(self):
-        """Konuları filtrele"""
+        """Konuları filtrele (Artık 'sonuç yok' uyarısı gösterir)"""
         search_text = self.search_var.get().lower()
+        
+        # --- YENİ EKLENDİ: GÖRÜNÜR SAYACI ---
+        visible_count = 0
+        
         for konu_adi, item_frame in self.topic_items.items():
             konu_info = next((k for k in self.konu_listesi if k['adi'] == konu_adi), None)
             if not konu_info: continue
@@ -242,13 +246,40 @@ class KonuBaslikSecmePenceresi(ctk.CTkFrame):
             
             if filter_pass and search_pass:
                 item_frame.pack(fill="x", padx=5, pady=2)
+                visible_count += 1 # --- YENİ EKLENDİ ---
             else:
                 item_frame.pack_forget()
-
+                
+        has_search_or_filter = bool(search_text) or (self.active_filter != "all")
+        
+        if visible_count == 0 and has_search_or_filter:
+            if hasattr(self, 'no_results_label'):
+                self.no_results_label.pack(expand=True, fill="both", pady=50, padx=20)
+        else:
+            if hasattr(self, 'no_results_label'):
+                self.no_results_label.pack_forget()
+               
     def create_topics_list(self, parent):
         """Konu listesi"""
         self.scroll_frame = ctk.CTkScrollableFrame(parent, fg_color="#f5f5f5", corner_radius=0)
         self.scroll_frame.pack(fill="both", expand=True, padx=15, pady=(0, 15))
+        
+        # --- GÜNCELLENEN KISIM: ARAMA SONUCU YOK ETİKETİ (EMOJİ KALDIRILDI) ---
+        # Bu etiketi oluşturuyoruz ama 'pack_forget()' ile gizliyoruz.
+        self.no_results_label = ctk.CTkFrame(self.scroll_frame, fg_color=self.colors['hover_bg'], corner_radius=15)
+        
+        # ESKİ: ctk.CTkLabel(self.no_results_label, text="🤷‍♂️", font=ctk.CTkFont(size=48)).pack(pady=(30, 10))
+        # YENİ: Emoji kaldırıldı, sadece bilgilendirme metni kalacak.
+        
+        ctk.CTkLabel(self.no_results_label, text="Eşleşen konu bulunamadı",
+                     font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"), 
+                     text_color=self.colors['text_primary']).pack(pady=(60, 10)) # Yukardan boşluk arttırıldı
+        ctk.CTkLabel(self.no_results_label, text="Lütfen arama terimini veya filtreyi değiştirin",
+                     font=ctk.CTkFont(family="Segoe UI", size=12), 
+                     text_color=self.colors['text_secondary']).pack(pady=(0, 60)) # Aşağıdan boşluk arttırıldı
+        
+        self.no_results_label.pack_forget() # Başlangıçta gizli
+        # --- GÜNCELLENEN KISIM BİTTİ ---
         
         self.checkbox_vars = {}
         self.checkboxes = {}
@@ -263,7 +294,7 @@ class KonuBaslikSecmePenceresi(ctk.CTkFrame):
         
         if len(self.konu_listesi) > 50:
             self.create_load_more_button()
-
+            
     def create_topic_item(self, konu_info):
         """Modern konu öğesi - detaylı soru dağılımı ile"""
         konu_adi = konu_info['adi']

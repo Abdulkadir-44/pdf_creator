@@ -1,0 +1,94 @@
+🚀 Proje Raporu: "Soru Otomasyon Sistemi" Refactoring Özeti
+🎯 Amaç: 1500+ satırlık, içinde kaybolduğumuz soru_parametresi_sec_ui.py "God Class" (Her Şeyi Yapan Sınıf) yapısını parçalamak. Sorumlulukları ayırarak (Separation of Concerns) projenin bakımını kolaylaştırmak ve performans iyileştirmelerine zemin hazırlamak.
+
+Yeni Mimari: Artık "Yönetici", "Beyin" ve "Ameleler" (İşçiler) olarak çalışan net bir hiyerarşimiz var.
+
+📊 Rollerin Dağılımı: Hangi Dosya Ne İşe Yarıyor?
+1. "Yönetici" (Ana Controller)
+Bu, projenin ana yöneticisidir. Artık neredeyse hiç çizim yapmaz veya nasıl yapılacağını bilmez. Sadece "Beyin"e ve "Ameleler"e emir verir ve "state"i (durumu) tutar.
+
+Dosya: ui/soru_parametresi_sec_ui.py
+
+Görevi:
+
+Tüm diğer sınıfların (Beyin, Ameleler) örneklerini (instance) oluşturur ve tutar (self.oturum_yoneticisi, self.parametre_formu vb.).
+
+Hangi ekranın gösterileceğine karar verir (goster_parametre_formu ile gorsel_onizleme_alani_olustur arasında geçiş yapar).
+
+Ameleler'den gelen sinyalleri (callback) dinler (örn: KontrolPaneli'nden "Sil" sinyali gelince).
+
+Gelen sinyalleri "Beyin"e paslar (self.oturum_yoneticisi.gorseli_kaldir_new(index) çağrısı gibi).
+
+Tüm ana "state"i (durum) üzerinde tutar: self.sayfa_haritasi, self.secilen_gorseller, self.current_page vb.
+
+2. "Beyin" (İş Mantığı / Business Logic)
+Bu, projenin görsel olmayan, saf iş mantığıdır. Tüm hesaplamalar ve "state" (durum) değişiklikleri burada yapılır.
+
+Dosya: logic/oturum_yoneticisi.py
+
+Görevi:
+
+"Yönetici"den (controller) gelen emirleri (gorseli_guncelle_new, pdf_olustur vb.) çalıştırır.
+
+Tüm "havuz" mantığını, rastgele görsel seçimini (secili_gorselleri_al) ve dosya kontrollerini yapar.
+
+PDFCreator'ü çağırarak sayfa_haritasi'nı planlar (_replan_and_refresh_ui).
+
+"Yönetici"nin üzerindeki self.secilen_gorseller gibi "state"leri (durumları) günceller.
+
+İş bittiğinde, "Yönetici"nin display_images_new gibi UI (arayüz) fonksiyonlarını tetikler.
+
+3. "Ameleler" (Görsel Bileşenler / UI Workers)
+Bunlar, "Yönetici"nin emirlerine göre ekrana bir şeyler çizen "aptal" bileşenlerdir. Kendi başlarına karar vermezler, sadece sinyal gönderirler.
+
+Dosya: ui/parametre_sayfasi/parametre_secim_formu.py
+
+Görevi: Ekran 1'i (Soru Tipi, Zorluk, Konu-Adet formu) çizer. "Devam Et" butonuna basıldığında "Yönetici"ye _form_onaylandi_callback sinyalini gönderir.
+
+Dosya: ui/parametre_sayfasi/sayfa_basligi.py
+
+Görevi: En üstteki Başlık (Header) çubuğunu çizer ("Ana Menü", "Konu Seçimi" butonları). "Ana Menü"ye basıldığında "Yönetici"ye ana_menuye_don sinyalini gönderir.
+
+Dosya: ui/parametre_sayfasi/onizleme_ekrani.py
+
+Görevi: Ekran 2'nin İskeletini çizer (Sol boş panel pdf_container ve Sağ boş panel controls_container). İçiyle ilgilenmez.
+
+Dosya: ui/parametre_sayfasi/kontrol_paneli.py
+
+Görevi: Sağ Panelin İçeriğini çizer (Başlık kutusu, "Soru 1", "Soru 2" listesi, "Sil" / "Güncelle" / "PDF Oluştur" butonları). "Sil"e basıldığında "Yönetici"ye on_kaldir sinyalini gönderir.
+
+4. "Uzman Ameleler" (Yardımcılar / Utilities)
+Bunlar, belirli bir uzmanlık alanında hizmet veren "amelelerdir".
+
+Dosya: logic/onizleme_cizici.py
+
+Görevi: "Çizim Uzmanı". "Yönetici"den (Controller) verileri (sayfa_haritasi, başlık metni vb.) alır, tüm PIL (Pillow) çizim işlerini yapar ve geriye hazır bir ImageTk.PhotoImage nesnesi (resim) döndürür. templates klasörünün yolunu kendi kendine bulur.
+
+Dosya: ui/dialog_yoneticisi.py
+
+Görevi: "Pop-up Uzmanı". "Yönetici"den veya "Beyin"den gelen show_error, show_notification gibi komutlarla ekrana hata/bilgi pencereleri çıkarır.
+
+🐛 Sorun Çıkarsa Nereye Bakmalı? (Hata Ayıklama Rehberi)
+"Devam Et" butonuna bastım, Ekran 2 gelmedi, hata verdi:
+
+logic/oturum_yoneticisi.py -> _proceed_to_preview fonksiyonuna bak. Muhtemelen planla_test_duzeni (PDFCreator'dan gelen) veya secili_gorselleri_al kısmında sorun vardır.
+
+Ekran 2'de "Sil" veya "Güncelle" butonu çalışmıyor veya yanlış çalışıyor:
+
+logic/oturum_yoneticisi.py -> gorseli_kaldir_new veya gorseli_guncelle_new fonksiyonlarına bak. Tüm havuz mantığı ve liste güncellemeleri buradadır.
+
+Ekran 2'deyim ama Sol taraftaki Önizleme Resmi bozuk, eksik veya hatalı görünüyor:
+
+logic/onizleme_cizici.py -> _create_test_preview_BestFit veya _draw_title_on_image fonksiyonlarına bak. Tüm PIL (çizim) mantığı buradadır.
+
+Ekran 2'de Sağ Panel (Soru Listesi) hiç gelmedi veya butonlar eksik:
+
+ui/parametre_sayfasi/kontrol_paneli.py -> __init__ metoduna bak. Çizim işi buradadır.
+
+Eğer hata veriyorsa: ui/soru_parametresi_sec_ui.py -> display_images_new fonksiyonundaki callbacks sözlüğüne bak. Muhtemelen "Beyin"e pasladığın bir fonksiyonun adını (gorseli_guncelle_new gibi) ana dosyadan silmişsindir (az önceki hata gibi).
+
+"Ana Menü" veya "Konu Seçimi" butonları çalışmıyor:
+
+ui/parametre_sayfasi/sayfa_basligi.py -> command'ların doğru callback'i çağırdığından emin ol.
+
+ui/soru_parametresi_sec_ui.py -> ana_menuye_don veya konu_baslik_sayfasina_don fonksiyonlarının içine bak.

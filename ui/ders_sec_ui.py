@@ -229,4 +229,4 @@ class DersSecmePenceresi(ctk.CTkFrame):
             col = idx % max_columns
             btn.grid(row=row, column=col, padx=padding//2, pady=10, sticky="ew")
 
-        logger.info(f"Buton düzenlemesi tamamlandı - {len(self.current_buttons)} buton, {max_columns} sütun ile yerleştirildi.")
+        logger.debug(f"Buton düzenlemesi tamamlandı - {len(self.current_buttons)} buton, {max_columns} sütun ile yerleştirildi.")

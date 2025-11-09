@@ -5,7 +5,9 @@ import shutil
 from PIL import Image, ImageTk
 import logging
 import json
+import threading
 from datetime import datetime, timedelta
+from logic.resim_yonetimi_beyni import ResimYonetimiBeyni
 
 logger = logging.getLogger(__name__)
 
@@ -17,43 +19,22 @@ BTN_FG = "#ffffff"
 TREE_BG = "#ffffff"
 SELECTED_BG = "#e3f2fd"
 
-# Görsel doğrulama yardımcı fonksiyonu
-IMAGE_EXTS = ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.webp')
-
-def is_image_file(path):
-    """
-    Sadece gerçek görüntü dosyaları True döndürür.
-    Uzantı ve dosya içeriğini kontrol eder.
-    """
-    try:
-        p = str(path).lower()
-        if not p.endswith(IMAGE_EXTS):
-            return False
-        from PIL import Image
-        with Image.open(path) as im:
-            im.verify()  # Görsel açılabiliyor mu test et
-        return True
-    except Exception:
-        return False
 
 
 class ResimYonetimiPenceresi(ctk.CTkFrame):
     def __init__(self, parent, controller):
         super().__init__(parent, fg_color=BG_COLOR)
         self.controller = controller
+        self.beyin = ResimYonetimiBeyni()
         self.ana_klasor_yolu = None
         self.current_images = []
         self.selected_folder = None
-        self.tree_data = {}  # Ağaç veri yapısı
         self.expanded_folders = set()  # Açık olan klasörler
-        self.folder_stats = {}  # Klasör istatistikleri
         self.search_text = ""  # Arama metni
         self.selected_images = []  # Seçilen resimler listesi
-        self._thumb_cache = {}      # thumbnail cache
         self.search_timer = None  # Arama timer'ı
         self.search_results = []  # Arama sonuçları
-        self._count_cache = {}
-        self._size_cache = {}
+
         logger.info("ResimYonetimiPenceresi frame'i başlatılıyor")
         self.setup_ui()
     
@@ -206,6 +187,9 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
 
         # Selection event
         self.tree_view.bind("<<TreeviewSelect>>", self.on_tree_select)
+        
+        #(TEMBEL YÜKLEME İÇİN) ---
+        self.tree_view.bind("<<TreeviewOpen>>", self.on_folder_expand)
 
         # Detay paneli oluştur
         self.create_detail_panel(left_panel)
@@ -232,46 +216,24 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
         self.show_initial_message()
         logger.info("Resim yönetimi UI kurulumu tamamlandı")
     
-    def _clear_caches(self):
-        self._count_cache.clear()
-        self._size_cache.clear()
-
-    def count_all_images_recursive_cached(self, folder_path):
-        if folder_path in self._count_cache:
-            return self._count_cache[folder_path]
-        val = self.count_all_images_recursive(folder_path)
-        self._count_cache[folder_path] = val
-        return val
-
-    def get_folder_size_cached(self, folder_path):
-        if folder_path in self._size_cache:
-            return self._size_cache[folder_path]
-        val = self.get_folder_size(folder_path)
-        self._size_cache[folder_path] = val
-        return val
-    
-    def _format_size(self, n):
-        try:
-            for unit in ["B", "KB", "MB", "GB"]:
-                if n < 1024.0:
-                    return f"{n:.0f} {unit}" if unit == "B" else f"{n:.2f} {unit}"
-                n /= 1024.0
-        except Exception:
-            pass
-        return "-"
-
     def _get_ctk_thumb(self, path, max_size=(180, 180)):
-        """Path'ten CTkImage thumbnail üretir ve cache'ler."""
+        """
+        Beyin'den PIL thumbnail alır ve onu CTkImage'a dönüştürür.
+        Artık PIL veya Cache işi yapmaz.
+        """
         try:
-            if path in self._thumb_cache:
-                return self._thumb_cache[path]
-            img = Image.open(path)
-            img.thumbnail(max_size, Image.LANCZOS)
-            cimg = ctk.CTkImage(light_image=img, dark_image=img, size=img.size)
-            self._thumb_cache[path] = cimg
-            return cimg
+            # 1. PIL resmini Beyin'den iste
+            pil_img = self.beyin.get_pil_thumbnail(path, max_size)
+            
+            if pil_img:
+                # 2. CTkImage'a dönüştür ve döndür (importlar zaten var)
+                return ctk.CTkImage(light_image=pil_img, 
+                                    dark_image=pil_img, 
+                                    size=pil_img.size)
+            else:
+                return None # Beyin üretemedi
         except Exception as e:
-            logger.warning(f"Thumbnail üretilemedi: {path} -> {e}")
+            logger.warning(f"CTkImage thumbnail'a dönüştürülemedi: {path} -> {e}")
             return None
 
     def _open_preview(self, path):
@@ -363,33 +325,58 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
             # Mevcut davranışını koru
             self.klasor_secildi(folder_path)
 
-    def get_folder_path_from_item(self, item_id):
-        """TreeView item ID'sinden klasör yolunu al"""
-        # Item'ın text'ini al
-        item_text = self.tree_view.item(item_id, "text")
+    def on_folder_expand(self, event):
+        """Kullanıcı bir klasörün [+] simgesine bastığında tetiklenir."""
+        
+        # 1. Hangi öğenin açıldığını al
+        item_id = self.tree_view.focus() # 'focus()' hangi öğenin + simgesine basıldığını verir
+        
+        # 2. Bu öğenin altındaki ilk çocuğu bul (bizim "Yükleniyor..." satırımız)
+        children = self.tree_view.get_children(item_id)
+        if not children:
+            return # Zaten alt öğesi yoksa (ya da çoktan yüklendiyse) bırak
 
-        # İkonları temizle
-        for icon in ["🎯", "📂", "📋", "⭐", "📁"]:
-            item_text = item_text.replace(icon, "").strip()
-
-        # Parent'ları takip ederek tam yolu bul
-        parent_id = self.tree_view.parent(item_id)
-        path_parts = [item_text]
-
-        while parent_id:
-            parent_text = self.tree_view.item(parent_id, "text")
-            for icon in ["🎯", "📂", "📋", "⭐", "📁"]:
-                parent_text = parent_text.replace(icon, "").strip()
-            path_parts.insert(0, parent_text)
-            parent_id = self.tree_view.parent(parent_id)
-
-        # Ana klasör yolu ile birleştir
-        if self.ana_klasor_yolu:
-            full_path = os.path.join(self.ana_klasor_yolu, *path_parts)
-            return full_path if os.path.exists(full_path) else None
-
-        return None
+        first_child_id = children[0]
+        
+        # 3. Bu ilk çocuğun "Yükleniyor..." satırı olup olmadığını kontrol et
+        if self.tree_view.item(first_child_id, "text") == "Yükleniyor...":
             
+            # 4. "Yükleniyor..." satırını SİL
+            self.tree_view.delete(first_child_id)
+            
+            # 5. Asıl klasörün yolunu al (yeni hızlı fonksiyonumuzla)
+            folder_path = self.get_folder_path_from_item(item_id)
+            if not folder_path:
+                return
+
+            # 6. "Beyin"den SADECE BİR alt seviyeyi iste (Tembel Yükleme)
+            yeni_alt_klasorler = self.beyin.get_sadece_alt_klasorler(folder_path)
+            
+            # 7. Gelen yeni klasörleri ağaca ekle
+            for (klasor_adi, tam_yol, has_children) in yeni_alt_klasorler:
+                self.add_folder_to_treeview(
+                    parent_id=item_id,
+                    folder_path=tam_yol,
+                    folder_name=klasor_adi,
+                    has_children=has_children 
+                )
+                
+    def get_folder_path_from_item(self, item_id):
+        """
+        TreeView item ID'sinden klasör yolunu alır. (Hızlı versiyon)
+        Artık 'values' içinde saklanan yolu doğrudan okur.
+        """
+        try:
+            # 'values' listesinin ilk elemanında tam yolu saklamıştık
+            values = self.tree_view.item(item_id, "values")
+            if values:
+                return str(values[0])
+            else:
+                # Eğer 'values' yoksa (belki "Yükleniyor..." satırıdır)
+                return None
+        except Exception:
+            return None
+                
     def show_initial_message(self):
         """Başlangıç mesajını göster"""
         logger.debug("Başlangıç mesajı gösteriliyor")
@@ -410,197 +397,152 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
             logger.info(f"Klasör seçildi: {klasor_yolu}")
             self.ana_klasor_yolu = klasor_yolu
 
-            # Tüm cache'leri temizle
-            self._clear_caches()
+            self.beyin.set_ana_klasor(klasor_yolu)
+            self.expanded_folders.clear()
 
             self.goster_klasor_agaci(klasor_yolu)
         else:
             logger.info("Klasör seçme işlemi kullanıcı tarafından iptal edildi.")
           
     def goster_klasor_agaci(self, ana_klasor):
-        """Klasör ağacını göster"""
-        logger.info(f"Klasör ağacı '{ana_klasor}' yolu için oluşturuluyor.")
+        """Klasör ağacının ilk seviyesini göstermek için display_tree'yi tetikler."""
+        logger.info(f"Tembel Yükleme: '{ana_klasor}' yolu için ilk seviye gösteriliyor.")
         
         try:
-            # Ağaç veri yapısını oluştur
-            self.build_tree_structure(ana_klasor)
-            self.calculate_folder_stats()
-            
-            # Ağaç yapısını göster
-            self.display_tree()
-            logger.info("Klasör ağacı başarıyla oluşturuldu.")
+            # Artık 'build' veya 'calculate' yok.
+            # Sadece 'display_tree'ye ana klasörü veriyoruz.
+            self.display_tree(ana_klasor) 
+            logger.info("Klasör ağacı ilk seviyesi yüklendi.")
         except Exception as e:
             logger.error(f"Klasör ağacı oluşturulurken hata: {e}", exc_info=True)
-            self.show_error_message("Klasör ağacı oluşturulurken hata oluştu.")
-
-    def build_tree_structure(self, root_path):
-        """Ağaç veri yapısını oluştur"""
-        self.tree_data = {}
-        self.expanded_folders.clear()
-        
-        try:
-            items = os.listdir(root_path)
-            folders = [item for item in items if os.path.isdir(os.path.join(root_path, item))]
+            self.show_error_message(f"Klasör ağacı oluşturulurken hata oluştu:\n{e}")
             
-            for folder in sorted(folders):
-                folder_path = os.path.join(root_path, folder)
-                self.tree_data[folder_path] = {
-                    'name': folder,
-                    'path': folder_path,
-                    'children': self.get_children(folder_path),
-                    'level': 0,
-                    'parent': None
-                }
-                
-        except PermissionError:
-            logger.warning(f"Klasöre erişim izni yok: {root_path}")
-        except Exception as e:
-            logger.error(f"Ağaç yapısı oluşturma hatası: {e}", exc_info=True)
-
-    def get_children(self, folder_path, level=1):
-        """Klasörün alt klasörlerini al"""
-        children = {}
-        try:
-            items = os.listdir(folder_path)
-            folders = [item for item in items if os.path.isdir(os.path.join(folder_path, item))]
-            
-            for folder in sorted(folders):
-                child_path = os.path.join(folder_path, folder)
-                children[child_path] = {
-                    'name': folder,
-                    'path': child_path,
-                    'children': self.get_children(child_path, level + 1),
-                    'level': level,
-                    'parent': folder_path
-                }
-                
-        except PermissionError:
-            logger.warning(f"Klasöre erişim izni yok: {folder_path}")
-        except Exception as e:
-            logger.error(f"Alt klasör alma hatası: {e}", exc_info=True)
-            
-        return children
-
-    def calculate_folder_stats(self):
-        """Klasör istatistiklerini hesapla"""
-        logger.info("Klasör istatistikleri hesaplanıyor...")
-        self.folder_stats = {}
-        
-        # Tüm klasörleri recursive olarak işle
-        self.calculate_stats_recursive(self.tree_data)
-        
-    def calculate_stats_recursive(self, folders):
-        """Klasör istatistiklerini recursive olarak hesapla"""
-        for folder_path, folder_info in folders.items():
-            try:
-                # Resim dosyalarını say
-                resim_uzantilari = ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff')
-                resim_sayisi = 0
-                toplam_boyut = 0
-                
-                for dosya in os.listdir(folder_path):
-                    if dosya.lower().endswith(resim_uzantilari):
-                        resim_sayisi += 1
-                        try:
-                            toplam_boyut += os.path.getsize(os.path.join(folder_path, dosya))
-                        except:
-                            pass
-                
-                self.folder_stats[folder_path] = {
-                    'resim_sayisi': resim_sayisi,
-                    'toplam_boyut': toplam_boyut
-                }
-                
-                # Alt klasörleri de işle
-                if folder_info['children']:
-                    self.calculate_stats_recursive(folder_info['children'])
-                
-            except Exception as e:
-                logger.warning(f"Klasör istatistiği hesaplanamadı: {folder_path} - {e}")
-                self.folder_stats[folder_path] = {'resim_sayisi': 0, 'toplam_boyut': 0}
-
-    def display_tree(self):
-        """Treeview'ı populate et"""
+    def display_tree(self, ana_klasor=None):
+        """
+        Treeview'ı populate et. (Tembel Yükleme için güncellendi)
+        ana_klasor: None değilse, ilk yükleme yapılır.
+        """
         # Treeview'ı temizle
         for item in self.tree_view.get_children():
             self.tree_view.delete(item)
 
         search_text = self.search_entry.get().strip()
 
-        # Arama modu
+        # ARAMA MODU (GEÇİCİ OLARAK DEVRE DIŞI - HENÜZ ÇALIŞMAZ)
         if search_text and len(search_text) >= 2:
             self.populate_treeview_with_search()
-        else:
-            # Normal mod - Ana klasörleri göster
-            self.populate_treeview_normal()
-
-        # <<< EKLENDİ
+        
+        # TEMBEL YÜKLEME (NORMAL MOD)
+        elif ana_klasor:
+            # Ana klasörün sadece BİR alt seviyesini beyinden al
+            birinci_seviye_klasorler = self.beyin.get_sadece_alt_klasorler(ana_klasor)
+        
+            # DÜZELTİLMİŞ HALİ
+            for (klasor_adi, tam_yol, has_children) in birinci_seviye_klasorler:
+                self.add_folder_to_treeview(
+                    parent_id="",
+                    folder_path=tam_yol,
+                    folder_name=klasor_adi,
+                    has_children=has_children # <-- Artık 'has_children' tanımlı
+                )
+        
         self._update_upload_button_state()
 
     def populate_treeview_normal(self):
-        """Normal modda Treeview'ı populate et"""
-        for folder_path, folder_info in self.tree_data.items():
-            self.add_folder_to_treeview("", folder_path, folder_info)
-
+        """Arama silindiğinde normal moda dönmek için kullanılır."""
+        # Bu fonksiyonun eski mantığı (tree_data'yı gezmek) artık display_tree içinde.
+        # Bu fonksiyon, arama kutusu temizlendiğinde çağrılır.
+        if self.ana_klasor_yolu:
+            self.display_tree(self.ana_klasor_yolu)
+            
     def populate_treeview_with_search(self):
-        """Arama modunda Treeview'ı populate et"""
+        """
+        Arama modunda Treeview'ı populate et (Tembel Yükleme'ye uygun)
+        'search_results' listesini hiyerarşik olarak çizer. (Düzeltilmiş Versiyon)
+        """
         if not self.search_results:
+            logger.info("Arama sonucu bulunamadı, ağaç boş gösteriliyor.")
+            self.tree_view.insert(
+                parent="", # 'parent=""' olmalı (Hata burada olmuştu)
+                index="end", 
+                text=" 🚫 Eşleşen öge bulunamadı."
+            )
             return
         
-        # Eşleşen klasörleri hiyerarşik olarak ekle
-        parent_items = {}  # parent_path -> item_id mapping
+        # Hangi yolu (path) hangi item_id ile eklediğimizi takip eder
+        added_items_map = {}  # {path: item_id}
         
+        # Beyin'den gelen liste zaten hiyerarşik (Ders -> Konu -> Tur)
         for result in self.search_results:
-            folder_path = result['path']
-            folder_info = result['info']
-            match_type = result['match_type']
-            parent_path = result['parent_path']
+            path = result['path']
+            name = result['name']
+            has_children = result['has_children']
+            parts = result['parts']
             
-            # Parent ID'yi bul
-            parent_id = ""
-            if parent_path:
-                # Parent path'i string olarak birleştir
-                parent_key = "|".join(parent_path)
-                parent_id = parent_items.get(parent_key, "")
+            # Ebeveyni belirle
+            parent_id = "" # Varsayılan olarak kök (örn: 'Coğrafya' için)
             
-            # Klasörü ekle
-            item_id = self.add_folder_to_treeview(parent_id, folder_path, folder_info, match_type)
+            if len(parts) > 1:
+                # Bu bir çocuktur (örn: 'Dünya üzerindeki çöller')
+                # Ebeveyninin 'parts' listesi, bu listenin 'sonuncusu hariç' halidir
+                parent_parts = parts[:-1]
+                
+                # Ebeveynin tam yolunu oluştur (bu, map'teki key'imiz olacak)
+                parent_path = os.path.join(self.ana_klasor_yolu, *parent_parts)
+                
+                if parent_path in added_items_map:
+                    parent_id = added_items_map[parent_path]
+                else:
+                    # Bu bir 'yetim' (Bu durumun olmaması lazım, 
+                    # çünkü Beyin ebeveynleri de ekliyor)
+                    logger.warning(f"Yetim arama sonucu bulundu: {name}")
+                    pass # parent_id = "" (kök) olarak kalır
             
-            # Bu item'ı parent olarak kaydet
-            current_key = "|".join(parent_path + [folder_path])
-            parent_items[current_key] = item_id
+            # Bu öğeyi (Coğrafya VEYA Dünya üzerindeki çöller) ekle
+            # (eğer zaten eklenmediyse)
+            if path not in added_items_map:
+                item_id = self.add_folder_to_treeview(
+                    parent_id=parent_id,
+                    folder_path=path,
+                    folder_name=name,
+                    has_children=has_children
+                )
+                # Haritaya ekle ki, çocukları bunun altına eklenebilsin
+                added_items_map[path] = item_id
+                                    
+    def add_folder_to_treeview(self, parent_id, folder_path, folder_name, has_children: bool):
+        """
+        Ağaca BİR klasör ekler ve "Tembel Yükleme" için sahte bir alt öğe bırakır.
+        (Artık 'folder_info' veya 'match_type' almaz)
+        """
+        
+        level = self.beyin.get_folder_level(folder_path)
+        
+        # İkonları seviyeye göre belirle
+        icon = "📁"
+        if level == "DERS": icon = "📚"
+        elif level == "KONU": icon = "📖"
+        elif level == "TUR": icon = "📋"
+        elif level == "ZORLUK": icon = "⭐"
+        
+        display_name = f"{icon} {folder_name}"
 
-    def add_folder_to_treeview(self, parent_id, folder_path, folder_info, match_type="normal"):
-        folder_name = folder_info['name']
-        children = folder_info['children']
-
-        # Başlığı (🎯 📁 📋 ⭐) koruyabilirsin; sadece status kaldırıldı
-        if match_type in ['exact', 'partial']:
-            display_name = f"🎯 {folder_name}"
-        elif match_type == 'child':
-            display_name = f"📁 {folder_name}"
-        elif match_type == 'grandchild':
-            display_name = f"📋 {folder_name}"
-        elif match_type == 'great_grandchild':
-            display_name = f"⭐ {folder_name}"
-        else:
-            display_name = f"📁 {folder_name}"
-
-        level = self.get_folder_level(folder_path)
-        modified_val = self.get_last_modified(folder_path) if level == "DERS" else ""
-
+        # Klasörü ağaca ekle
         item_id = self.tree_view.insert(
             parent_id, "end",
             text=display_name,
-            
+            # --- ÇOK ÖNEMLİ: Tam yolu 'values' içine saklıyoruz ---
+            values=[folder_path] 
         )
 
-        if not self.search_entry.get().strip() and children:
-            for child_path, child_info in children.items():
-                self.add_folder_to_treeview(item_id, child_path, child_info)
+        # --- TEMBEL YÜKLEME SİHRİ ---
+        # Eğer bu bir 'Zorluk' klasörü değilse (daha alta inebilir)
+        if level != "ZORLUK" and has_children:
+            self.tree_view.insert(item_id, "end", text="Yükleniyor...")
+        
 
         return item_id
-
+    
     def klasor_secildi(self, klasor_yolu):
         """Klasör seçildiğinde"""
         logger.info(f"Klasör seçildi: {klasor_yolu}")
@@ -619,11 +561,11 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
         self.search_timer = self.after(300, self.perform_search)
 
     def perform_search(self):
-        """Gerçek arama işlemini yap"""
+        """
+        Arama işlemini ARKA PLAN thread'inde başlatır.
+        Ana arayüzü kilitlemez.
+        """
         search_text = self.search_entry.get().strip()
-        
-        # Loading'i temizle
-        self.search_loading_label.configure(text="")
         
         # Minimum karakter kontrolü
         if len(search_text) < 2:
@@ -632,98 +574,61 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
             else:
                 self.search_loading_label.configure(text="")
             self.search_results = []
-            self.display_tree()
+            self.display_tree(self.ana_klasor_yolu) # Normal moda dön
             return
         
-        # Arama yap
-        self.search_results = self.search_folders_recursive(search_text.lower())
+        # --- YENİ THREADING MANTIĞI ---
+        logger.info(f"'{search_text}' için ARKA PLANDA arama başlatılıyor...")
+        self.search_loading_label.configure(text="⏳")
         
-        # Sonuçları göster
-        self.display_tree()
+     
         
-        # Sonuç sayısını göster
+        # Yeni bir "işçi" thread başlat
+        thread = threading.Thread(
+            target=self._perform_search_async, # "İşçi" fonksiyonu
+            args=(search_text,),              # Ona "search_text"i ver
+            daemon=True # Ana uygulama kapanırsa bu thread'i de kapat
+        )
+        thread.start() # İşi başlat
+        
+    def _perform_search_async(self, search_text):
+        """
+        !!! BU FONKSİYON ARKA PLAN THREAD'İNDE ÇALIŞIR !!!
+        !!! ASLA CTK/TKINTER WIDGET'LARINA (UI) DOKUNMAZ !!!
+        """
+        try:
+            # 1. Ağır işi (os.walk) burada yap
+            results_list = self.beyin.search_folders_and_parents(search_text)
+            
+            # 2. İşi bitirince, sonucu ANA THREAD'e güvenle gönder
+            #    self.after(0, ...) komutu, _on_search_complete fonksiyonunu
+            #    ana UI thread'inde çalıştırır.
+            self.after(0, self._on_search_complete, results_list)
+            
+        except Exception as e:
+            logger.error(f"Arama thread'i çöktü: {e}", exc_info=True)
+            # Bir hata olsa bile UI'ı güncellemek için boş liste gönder
+            self.after(0, self._on_search_complete, [])
+
+    def _on_search_complete(self, results_list):
+        """
+        !!! BU FONKSİYON ANA UI THREAD'İNDE ÇALIŞIR !!!
+        !!! UI GÜNCELLEMESİ BURADA GÜVENLİDİR !!!
+        """
+        logger.info(f"Arama tamamlandı, {len(results_list)} sonuç bulundu.")
+        
+        # 1. Sonucu al
+        self.search_results = results_list
+        
+        # 2. UI'ı (Loading simgesi) güncelle
         self.search_loading_label.configure(text="")
-
-    def search_folders_recursive(self, search_text):
-        """Hiyerarşik arama yap - eşleşen klasörün tüm alt yapısını göster"""
-        matched_folders = []
-        self.search_recursive_helper(search_text, self.tree_data, matched_folders, [])
         
-        # Eşleşen klasörlerin alt yapısını da ekle
-        enhanced_results = []
-        for result in matched_folders:
-            enhanced_results.append(result)
-            # Bu klasörün alt klasörlerini de ekle
-            self.add_children_to_results(result['path'], result['info'], enhanced_results)
-        return enhanced_results
-
-    def add_children_to_results(self, folder_path, folder_info, results):
-        """Eşleşen klasörün alt klasörlerini sonuçlara ekle"""
-        if not folder_info['children']:
-            return
-        
-        # Alt klasörleri ekle
-        for child_path, child_info in folder_info['children'].items():
-            # Alt klasörü sonuçlara ekle
-            results.append({
-                'path': child_path,
-                'info': child_info,
-                'parent_path': [folder_path],
-                'match_type': 'child'
-            })
-            
-            # Bu alt klasörün de çocukları varsa onları da ekle
-            if child_info['children']:
-                for grandchild_path, grandchild_info in child_info['children'].items():
-                    results.append({
-                        'path': grandchild_path,
-                        'info': grandchild_info,
-                        'parent_path': [folder_path, child_path],
-                        'match_type': 'grandchild'
-                    })
-                    
-                    # Büyük torunları da ekle (test/yazılı altındaki kolay/orta/zor)
-                    if grandchild_info['children']:
-                        for great_grandchild_path, great_grandchild_info in grandchild_info['children'].items():
-                            results.append({
-                                'path': great_grandchild_path,
-                                'info': great_grandchild_info,
-                                'parent_path': [folder_path, child_path, grandchild_path],
-                                'match_type': 'great_grandchild'
-                            })
-
-    def search_recursive_helper(self, search_text, folders, matched_folders, parent_path):
-        """Recursive arama yardımcı fonksiyonu"""
-        for folder_path, folder_info in folders.items():
-            folder_name = folder_info['name']
-            
-            # Klasör adında arama yap
-            if search_text in folder_name.lower():
-                matched_folders.append({
-                    'path': folder_path,
-                    'info': folder_info,
-                    'parent_path': parent_path.copy(),
-                    'match_type': 'exact' if search_text == folder_name.lower() else 'partial'
-                })
-            
-            # Alt klasörlerde de ara
-            if folder_info['children']:
-                new_parent_path = parent_path + [folder_path]
-                self.search_recursive_helper(search_text, folder_info['children'], matched_folders, new_parent_path)
-
+        self.display_tree()
+              
     def klasor_secildi(self, klasor_yolu):
         """Klasör seçildiğinde"""
         logger.info(f"Klasör seçildi: {klasor_yolu}")
         self.selected_folder = klasor_yolu
-
-    def format_file_size(self, size_bytes):
-        """Dosya boyutunu formatla"""
-        if size_bytes < 1024:
-            return f"{size_bytes} B"
-        elif size_bytes < 1024 * 1024:
-            return f"{size_bytes / 1024:.1f} KB"
-        else:
-            return f"{size_bytes / (1024 * 1024):.1f} MB"
 
     def resim_yukle(self):
         """Yalnızca görsel dosyaları seçtir ve doğrula (kopyalama onayında yapılacak)."""
@@ -758,7 +663,7 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
                 dosya_adi = os.path.basename(src)
 
                 # SADECE GERÇEK GÖRSELLERİ KABUL ET
-                if not is_image_file(src):
+                if not self.beyin.is_image_file(src):
                     gecersizler.append(dosya_adi)
                     continue
 
@@ -790,15 +695,19 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
             if 0 <= index < len(self.selected_images):
                 src_path, _ = self.selected_images[index]
                 self.selected_images.pop(index)
-                self._thumb_cache.pop(src_path, None)
+                self.beyin.remove_from_thumb_cache(src_path)
                 self.show_selected_images()
         except Exception as e:
             logger.error(f"Bekleyen öğe kaldırılamadı: {e}", exc_info=True)
 
     def commit_selected_images(self):
-        """Bekleyen dosyaları seçili zorluk klasörüne kopyala (son kontrol dahil)."""
+        """
+        Bekleyen dosyaları ARKA PLANDA seçili zorluk klasörüne kopyalar.
+        (Kallavi Fonksiyon)
+        """
         try:
-            if not self.selected_folder or os.path.basename(os.path.normpath(self.selected_folder)) not in {"Kolay", "Orta", "Zor"}:
+            # 1. Kontroller (Bunlar hızlıdır, thread'e gerek yok)
+            if not self.selected_folder or not self.beyin.is_zorluk_folder(self.selected_folder):
                 messagebox.showwarning("Uyarı", "Lütfen önce Kolay/Orta/Zor klasörlerinden birini seçin.")
                 return
 
@@ -808,48 +717,95 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
 
             if not messagebox.askyesno(
                 "Onay",
-                f"{len(self.selected_images)} dosyayı\n'{self.get_relative_path(self.selected_folder)}'\nklasörüne kopyalamak istiyor musunuz?"
+                f"{len(self.selected_images)} dosyayı\n'{self.beyin.get_relative_path(self.selected_folder)}'\nklasörüne kopyalamak istiyor musunuz?"
             ):
                 return
-
-            kopyalanan = 0
-
-            for src_path, dosya_adi in list(self.selected_images):
-                try:
-                    # Son güvenlik: Her ihtimale karşı gerçekten görsel mi?
-                    if not is_image_file(src_path):
-                        logger.warning(f"Görsel olmayan dosya kopyalamadan çıkarıldı: {dosya_adi}")
-                        continue
-
-                    hedef_yol = os.path.join(self.selected_folder, dosya_adi)
-
-                    if os.path.exists(hedef_yol):
-                        if not messagebox.askyesno("Dosya Mevcut", f"'{dosya_adi}' zaten var. Üzerine yazılsın mı?"):
-                            continue
-
-                    shutil.copy2(src_path, hedef_yol)
-                    kopyalanan += 1
-
-                except Exception as e:
-                    logger.error(f"Kopyalama hatası: {src_path} -> {e}", exc_info=True)
-
-            # Bekleyen listeyi ve cache'leri temizle
+            
+            
+            # 2. UI'ı "Kopyalanıyor..." moduna al
+            # (Sağ paneli temizle ve bir mesaj göster)
+            for w in self.selected_images_scroll.winfo_children():
+                w.destroy()
+            
+            ctk.CTkLabel(
+                self.selected_images_scroll,
+                text=f"⏳ {len(self.selected_images)} resim kopyalanıyor, lütfen bekleyin...",
+                font=ctk.CTkFont(family="Segoe UI", size=14),
+                text_color="#2d3436"
+            ).pack(pady=50)
+            
+            # 3. Arka plan "işçi" thread'ini başlat
+            # (Kopyalanacak listeyi ve hedefi işçiye veriyoruz)
+            thread = threading.Thread(
+                target=self._commit_images_async,
+                args=(list(self.selected_images), self.selected_folder), # O anki kopyayı ver
+                daemon=True
+            )
+            thread.start()
+            
+            # 4. Ana listeyi hemen temizle (işçi kopyasını aldı)
             self.selected_images.clear()
-            self._thumb_cache.clear()
-            self._clear_caches()
-
-            self.show_selected_images()
-
-            # İstatistikler ve ağaç görünümü yenilensin
-            self.calculate_folder_stats()
-            self.display_tree()
-
-            messagebox.showinfo("Tamamlandı", f"{kopyalanan} dosya kopyalandı.")
 
         except Exception as e:
             logger.error(f"Yüklemeyi onaylama hatası: {e}", exc_info=True)
             messagebox.showerror("Hata", "Yükleme sırasında bir hata oluştu.")
-     
+            
+
+    def _commit_images_async(self, images_to_copy_list, hedef_klasor):
+        """
+        !!! BU FONKSİYON ARKA PLAN THREAD'İNDE ÇALIŞIR !!!
+        Ağır 'shutil.copy2' işini yapar.
+        """
+        kopyalanan = 0
+        hatalar = 0
+        
+        for src_path, dosya_adi in images_to_copy_list:
+            try:
+                # (Bu kontroller hızlı, burada kalabilir)
+                if not self.beyin.is_image_file(src_path):
+                    continue
+                
+                hedef_yol = os.path.join(hedef_klasor, dosya_adi)
+                
+                # Ağır iş: shutil.copy2
+                self.beyin.kopyala_resim(src_path, hedef_yol)
+                kopyalanan += 1
+
+            except Exception as e:
+                logger.error(f"Kopyalama thread'i hatası: {src_path} -> {e}", exc_info=True)
+                hatalar += 1
+        
+        # İş bitince, sonucu (başarı/hata sayısı) ana thread'e yolla
+        self.after(0, self._on_commit_complete, kopyalanan, hatalar)
+
+    def _on_commit_complete(self, kopyalanan_sayisi, hata_sayisi):
+        """
+        !!! BU FONKSİYON ANA UI THREAD'İNDE ÇALIŞIR !!!
+        Kopyalama bitince UI'ı günceller.
+        """
+        logger.info(f"Kopyalama tamamlandı. Başarılı: {kopyalanan_sayisi}, Hata: {hata_sayisi}")
+        
+        # 1. UI'ı güncelle (Mesajı göster)
+        # (Sağ paneli temizle)
+        for w in self.selected_images_scroll.winfo_children():
+            w.destroy()
+        
+        self.show_initial_message() # Başlangıç mesajını göster
+        
+        if hata_sayisi > 0:
+            messagebox.showwarning("Kopyalama Tamamlandı", f"{kopyalanan_sayisi} dosya kopyalandı.\n{hata_sayisi} dosyada hata oluştu (detaylar log'da).")
+        else:
+            messagebox.showinfo("Tamamlandı", f"{kopyalanan_sayisi} dosya başarıyla kopyalandı.")
+
+        # 2. Cache'leri temizle ve ağacı yenile
+        self.beyin._clear_caches()
+        if self.ana_klasor_yolu:
+            self.display_tree(self.ana_klasor_yolu) # Tembel yükleme
+            
+        # 3. Detay panelini de (eğer bir yer seçiliyse) yenile
+        if self.selected_folder:
+            self.update_detail_panel(self.selected_folder)
+            
     def clear_selected_images(self):
         """Bekleyen tüm dosyaları kaldır (diskte değişiklik yok)"""
         try:
@@ -902,26 +858,38 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
                 col = idx % cols
                 row = idx // cols
 
-                card = ctk.CTkFrame(cards_frame, corner_radius=8)
+                # 1. Karta SABİT YÜKSEKLİK ver (örn: 320px)
+                card = ctk.CTkFrame(cards_frame, corner_radius=8, height=320)
                 card.grid(row=row, column=col, sticky="nsew", padx=6, pady=6)
 
-                # Thumbnail
+                card.grid_rowconfigure(0, weight=1) # Resim alanı genişlesin
+                card.grid_rowconfigure(1, weight=0) # Metin sabit
+                card.grid_rowconfigure(2, weight=0) # Butonlar sabit
+                card.grid_columnconfigure(0, weight=1) # Tek sütun
+
+           
+                img_frame = ctk.CTkFrame(card, fg_color="transparent", height=180)
+                img_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=(10, 6))
+                img_frame.pack_propagate(False) # Frame'in küçülmesini engelle
+
                 thumb = self._get_ctk_thumb(src_path, max_size=(180, 180))
                 if thumb is not None:
-                    img_lbl = ctk.CTkLabel(card, image=thumb, text="")
+                    img_lbl = ctk.CTkLabel(img_frame, image=thumb, text="")
                     img_lbl.image = thumb  # GC koruması
                 else:
                     img_lbl = ctk.CTkLabel(
-                        card,
+                        img_frame,
                         text="(Önizleme yok)",
                         font=ctk.CTkFont(size=10),
                         text_color="#6c757d"
                     )
-                img_lbl.pack(padx=10, pady=(10, 6))
+                
+                # .pack() kullanarak resim çerçevesi içinde ortala
+                img_lbl.pack(expand=True, anchor="center") 
 
-                # Ad + boyut
+                # --- Row 1: Metin Alanı ---
                 try:
-                    size_text = self._format_size(os.path.getsize(src_path))
+                    size_text = self.beyin._format_size(os.path.getsize(src_path))
                 except Exception:
                     size_text = "-"
                 meta_lbl = ctk.CTkLabel(
@@ -929,13 +897,15 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
                     text=f"{dosya_adi}\n{size_text}",
                     font=ctk.CTkFont(family="Segoe UI", size=9),
                     text_color="#2d3436",
-                    justify="center"
+                    justify="center",
+                    height=30 # Metin için sabit yükseklik
                 )
-                meta_lbl.pack(padx=8, pady=(0, 8))
+                meta_lbl.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 8))
 
-                # Butonlar
+                # --- Row 2: Buton Alanı ---
+                # Butonları 'sticky="s"' (south/güney) ile en alta sabitliyoruz
                 btn_row = ctk.CTkFrame(card, fg_color="transparent")
-                btn_row.pack(pady=(0, 10))
+                btn_row.grid(row=2, column=0, sticky="s", pady=(0, 10))
 
                 ctk.CTkButton(
                     btn_row, text="Önizle",
@@ -948,6 +918,7 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
                     width=90, fg_color="#dc3545",
                     command=lambda i=idx: self._on_remove_selected_image(i)
                 ).pack(side="left")
+            
 
             # Alt aksiyonlar: Onayla / Temizle
             btns = ctk.CTkFrame(container, fg_color="transparent")
@@ -966,75 +937,75 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
 
         except Exception as e:
             logger.error(f"Seçili resimleri göstermek başarısız: {e}", exc_info=True)
-
-    def create_selected_image_widget(self, resim_yolu, dosya_adi, index):
-        """Seçilen resim widget'ı oluştur"""
-        try:
-            # Resim frame'i
-            image_frame = ctk.CTkFrame(self.selected_images_scroll, fg_color="white")
             
-            # Grid pozisyonu hesapla (3 sütunlu grid)
-            row = index // 3
-            col = index % 3
-            image_frame.grid(row=row, column=col, padx=5, pady=5, sticky="nsew")
+    # def create_selected_image_widget(self, resim_yolu, dosya_adi, index):
+    #     """Seçilen resim widget'ı oluştur"""
+    #     try:
+    #         # Resim frame'i
+    #         image_frame = ctk.CTkFrame(self.selected_images_scroll, fg_color="white")
             
-            # Grid ağırlık ayarları
-            self.selected_images_scroll.grid_columnconfigure(col, weight=1)
+    #         # Grid pozisyonu hesapla (3 sütunlu grid)
+    #         row = index // 3
+    #         col = index % 3
+    #         image_frame.grid(row=row, column=col, padx=5, pady=5, sticky="nsew")
+            
+    #         # Grid ağırlık ayarları
+    #         self.selected_images_scroll.grid_columnconfigure(col, weight=1)
 
-            # Resmi yükle ve boyutlandır
-            pil_image = Image.open(resim_yolu)
-            # Daha büyük thumbnail boyutu
-            pil_image.thumbnail((200, 200), Image.Resampling.LANCZOS)
-            photo = ImageTk.PhotoImage(pil_image)
+    #         # Resmi yükle ve boyutlandır
+    #         pil_image = Image.open(resim_yolu)
+    #         # Daha büyük thumbnail boyutu
+    #         pil_image.thumbnail((200, 200), Image.Resampling.LANCZOS)
+    #         photo = ImageTk.PhotoImage(pil_image)
 
-            # Resim label'ı
-            image_label = ctk.CTkLabel(
-                image_frame,
-                image=photo,
-                text=""
-            )
-            image_label.image = photo  # Referansı sakla
-            image_label.pack(pady=10)
+    #         # Resim label'ı
+    #         image_label = ctk.CTkLabel(
+    #             image_frame,
+    #             image=photo,
+    #             text=""
+    #         )
+    #         image_label.image = photo  # Referansı sakla
+    #         image_label.pack(pady=10)
 
-            # Dosya adı
-            name_label = ctk.CTkLabel(
-                image_frame,
-                text=dosya_adi,
-                font=ctk.CTkFont(family="Segoe UI", size=10),
-                text_color="#2d3436",
-                wraplength=180
-            )
-            name_label.pack(pady=(0, 5))
+    #         # Dosya adı
+    #         name_label = ctk.CTkLabel(
+    #             image_frame,
+    #             text=dosya_adi,
+    #             font=ctk.CTkFont(family="Segoe UI", size=10),
+    #             text_color="#2d3436",
+    #             wraplength=180
+    #         )
+    #         name_label.pack(pady=(0, 5))
 
-            # Sil butonu
-            delete_btn = ctk.CTkButton(
-                image_frame,
-                text="🗑️ Kaldır",
-                font=ctk.CTkFont(family="Segoe UI", size=10),
-                fg_color="#dc3545",
-                text_color="white",
-                hover_color="#c82333",
-                width=80,
-                height=25,
-                command=lambda path=resim_yolu, name=dosya_adi, idx=index: self.remove_selected_image(path, name, idx)
-            )
-            delete_btn.pack(pady=(0, 10))
+    #         # Sil butonu
+    #         delete_btn = ctk.CTkButton(
+    #             image_frame,
+    #             text="🗑️ Kaldır",
+    #             font=ctk.CTkFont(family="Segoe UI", size=10),
+    #             fg_color="#dc3545",
+    #             text_color="white",
+    #             hover_color="#c82333",
+    #             width=80,
+    #             height=25,
+    #             command=lambda path=resim_yolu, name=dosya_adi, idx=index: self.remove_selected_image(path, name, idx)
+    #         )
+    #         delete_btn.pack(pady=(0, 10))
 
-        except Exception as e:
-            logger.error(f"Seçilen resim widget'ı oluşturulurken hata: {e}", exc_info=True)
+    #     except Exception as e:
+    #         logger.error(f"Seçilen resim widget'ı oluşturulurken hata: {e}", exc_info=True)
 
-    def remove_selected_image(self, resim_yolu, dosya_adi, index):
-        """Seçilen resimden kaldır"""
-        if messagebox.askyesno("Onay", f"'{dosya_adi}' resmini seçilenlerden kaldırmak istediğinizden emin misiniz?"):
-            try:
-                # Listedeki resmi kaldır
-                self.selected_images.pop(index)
-                # Görüntüyü yenile
-                self.show_selected_images()
-                logger.info(f"Resim seçilenlerden kaldırıldı: {dosya_adi}")
-            except Exception as e:
-                logger.error(f"Resim kaldırılırken hata: {e}", exc_info=True)
-                messagebox.showerror("Hata", "Resim kaldırılırken hata oluştu.")
+    # def remove_selected_image(self, resim_yolu, dosya_adi, index):
+    #     """Seçilen resimden kaldır"""
+    #     if messagebox.askyesno("Onay", f"'{dosya_adi}' resmini seçilenlerden kaldırmak istediğinizden emin misiniz?"):
+    #         try:
+    #             # Listedeki resmi kaldır
+    #             self.selected_images.pop(index)
+    #             # Görüntüyü yenile
+    #             self.show_selected_images()
+    #             logger.info(f"Resim seçilenlerden kaldırıldı: {dosya_adi}")
+    #         except Exception as e:
+    #             logger.error(f"Resim kaldırılırken hata: {e}", exc_info=True)
+    #             messagebox.showerror("Hata", "Resim kaldırılırken hata oluştu.")
 
     def show_no_selected_images_message(self):
         """Seçilen resim bulunamadı mesajı göster"""
@@ -1048,28 +1019,6 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
         )
         message_label.pack(pady=50)
 
-    def resim_sil(self, resim_yolu, dosya_adi):
-        """Resim sil"""
-        if messagebox.askyesno("Onay", f"'{dosya_adi}' dosyasını silmek istediğinizden emin misiniz?"):
-            try:
-                os.remove(resim_yolu)
-                logger.info(f"Resim silindi: {dosya_adi}")
-                
-                # Seçilen resimler listesinden de kaldır
-                self.selected_images = [(path, name) for path, name in self.selected_images if path != resim_yolu]
-                
-                # Seçilen resimleri yeniden göster
-                self.show_selected_images()
-                
-                # Klasör istatistiklerini güncelle
-                self.calculate_folder_stats()
-                self.display_tree()
-                
-                messagebox.showinfo("Başarılı", "Resim başarıyla silindi.")
-            except Exception as e:
-                logger.error(f"Resim silinirken hata: {e}", exc_info=True)
-                messagebox.showerror("Hata", "Resim silinirken hata oluştu.")
-
     def show_error_message(self, message):
         """Hata mesajı göster"""
         logger.warning(f"Kullanıcıya hata mesajı gösteriliyor: {message}")
@@ -1079,108 +1028,7 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
         """Ana menüye dön"""
         logger.info("Ana menüye dönme komutu verildi.")
         self.controller.ana_menuye_don()
-    
-    def count_images(self, folder_path):
-        """Bir klasördeki (sadece o klasör) resim sayısını döndür"""
-        if not os.path.exists(folder_path):
-            return 0
-        
-        resim_uzantilari = ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff')
-        count = 0
-        
-        try:
-            for dosya in os.listdir(folder_path):
-                dosya_yolu = os.path.join(folder_path, dosya)
-                if os.path.isfile(dosya_yolu) and dosya.lower().endswith(resim_uzantilari):
-                    count += 1
-        except Exception as e:
-            logger.error(f"Resim sayma hatası: {folder_path} - {e}")
-        
-        return count
-
-    def count_all_images_recursive(self, folder_path):
-        """Klasör ve TÜM alt klasörlerdeki resim sayısını döndür"""
-        if not os.path.exists(folder_path):
-            return 0
-        
-        total = 0
-        resim_uzantilari = ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff')
-        
-        try:
-            for root, dirs, files in os.walk(folder_path):
-                for file in files:
-                    if file.lower().endswith(resim_uzantilari):
-                        total += 1
-        except Exception as e:
-            logger.error(f"Recursive resim sayma hatası: {folder_path} - {e}")
-        
-        return total
-
-    def get_folder_level(self, folder_path):
-        """Klasörün hangi seviyede olduğunu belirle"""
-        if not self.ana_klasor_yolu:
-            return "UNKNOWN"
-        
-        try:
-            relative = os.path.relpath(folder_path, self.ana_klasor_yolu)
-            depth = len(relative.split(os.sep))
-            
-            if depth == 1:
-                return "DERS"
-            elif depth == 2:
-                return "KONU"
-            elif depth == 3:
-                return "TUR"
-            elif depth == 4:
-                return "ZORLUK"
-            else:
-                return "UNKNOWN"
-        except:
-            return "UNKNOWN"
-
-    def get_folder_size(self, folder_path):
-        """Klasörün toplam boyutunu byte cinsinden döndür"""
-        total_size = 0
-        
-        try:
-            for root, dirs, files in os.walk(folder_path):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    if os.path.exists(file_path):
-                        total_size += os.path.getsize(file_path)
-        except Exception as e:
-            logger.error(f"Klasör boyutu hesaplama hatası: {folder_path} - {e}")
-        
-        return total_size
-
-    def get_last_modified(self, folder_path):
-        """Klasörün son güncellenme tarihini formatlanmış döndür"""
-        try:
-            timestamp = os.path.getmtime(folder_path)
-            from datetime import datetime
-            dt = datetime.fromtimestamp(timestamp)
-            return dt.strftime("%d.%m.%Y %H:%M")
-        except:
-            return "Bilinmiyor"
-
-    def get_relative_path(self, folder_path):
-        """Desktop'tan başlayan göreli yolu döndür"""
-        try:
-            desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
-            if folder_path.startswith(desktop_path):
-                return os.path.relpath(folder_path, desktop_path)
-            else:
-                return folder_path
-        except:
-            return folder_path
       
-    def is_zorluk_folder(self, folder_path: str) -> bool:
-        """Seçilen klasör Kolay/Orta/Zor seviyelerinden biri mi?"""
-        if not folder_path:
-            return False
-        last = os.path.basename(os.path.normpath(folder_path))
-        return last in {"Kolay", "Orta", "Zor"}
-
     def _update_upload_button_state(self):
         """Resim Yükle butonunu sadece Kolay/Orta/Zor seçiliyken aktif et"""
         is_zorluk = False
@@ -1194,76 +1042,6 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
             fg_color=("#28a745" if is_zorluk else "#6c757d")
         )
         
-    def get_ders_status(self, folder_path):
-        """DERS seviyesi durum ikonu"""
-        total_images = self.count_all_images_recursive(folder_path)
-        
-        if total_images == 0:
-            return "❌"  # Hiç resim yok
-        
-        # Alt konuları kontrol et
-        try:
-            konular = [d for d in os.listdir(folder_path) 
-                      if os.path.isdir(os.path.join(folder_path, d))]
-            
-            for konu in konular:
-                konu_path = os.path.join(folder_path, konu)
-                konu_images = self.count_all_images_recursive(konu_path)
-                if konu_images == 0:
-                    return "⚠️"  # En az bir konu boş
-            
-            return "✅"  # Her konu dolu
-        except:
-            return "⚠️"
-
-    def get_konu_status(self, folder_path):
-        """KONU seviyesi durum ikonu"""
-        test_path = os.path.join(folder_path, "Test")
-        yazili_path = os.path.join(folder_path, "Yazılı")
-        
-        test_images = self.count_all_images_recursive(test_path) if os.path.exists(test_path) else 0
-        yazili_images = self.count_all_images_recursive(yazili_path) if os.path.exists(yazili_path) else 0
-        
-        if test_images == 0 and yazili_images == 0:
-            return "❌"  # Hiç resim yok
-        
-        # Test veya Yazılı boşsa
-        if test_images == 0 or yazili_images == 0:
-            return "⚠️"
-        
-        # Her ikisi de var, zorluk seviyelerini kontrol et
-        test_status = self.get_tur_status(test_path)
-        yazili_status = self.get_tur_status(yazili_path)
-        
-        if test_status == "✅" and yazili_status == "✅":
-            return "✅"
-        else:
-            return "⚠️"
-
-    def get_tur_status(self, folder_path):
-        """TÜR seviyesi (Test/Yazılı) durum ikonu"""
-        zorluklar = ["Kolay", "Orta", "Zor"]
-        dolu_sayisi = 0
-        
-        for zorluk in zorluklar:
-            zorluk_path = os.path.join(folder_path, zorluk)
-            if os.path.exists(zorluk_path):
-                image_count = self.count_images(zorluk_path)
-                if image_count > 0:
-                    dolu_sayisi += 1
-        
-        if dolu_sayisi == 0:
-            return "❌"  # Hiç resim yok
-        elif dolu_sayisi == 3:
-            return "✅"  # Hepsi dolu
-        else:
-            return "⚠️"  # Bazıları boş
-
-    def get_zorluk_status(self, folder_path):
-        """ZORLUK seviyesi durum ikonu"""
-        image_count = self.count_images(folder_path)
-        return "✅" if image_count > 0 else "❌"
-
     def create_detail_panel(self, parent):
         """Seçili klasör detay panelini oluştur"""
         # Detay frame'i
@@ -1308,26 +1086,89 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
         message.pack(pady=20)
 
     def update_detail_panel(self, folder_path):
-        """Seçili klasörün detaylarını göster"""
-        # Temizle
+        """
+        Seçili klasörün detaylarını ARKA PLANDA yükler.
+        (Kallavi Fonksiyon)
+        """
+        # 1. Temizle
         for widget in self.detail_scroll.winfo_children():
             widget.destroy()
         
-        # Seviyeyi belirle
-        level = self.get_folder_level(folder_path)
+        # 2. "Yükleniyor..." mesajı göster
+        ctk.CTkLabel(
+            self.detail_scroll,
+            text="⏳ İstatistikler hesaplanıyor...",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#6c757d"
+        ).pack(pady=20)
         
-        # Seviyeye göre detayları göster
+        # 3. Seviyeyi belirle
+        level = self.beyin.get_folder_level(folder_path)
+        
+        # 4. Arka plan "işçi" thread'ini başlat
+        thread = threading.Thread(
+            target=self._load_details_async,
+            args=(folder_path, level),
+            daemon=True
+        )
+        thread.start()
+    
+    def _load_details_async(self, folder_path, level):
+        """
+        !!! BU FONKSİYON ARKA PLAN THREAD'İNDE ÇALIŞIR !!!
+        Ağır 'Beyin' işini yapar.
+        """
+        try:
+            data = {}
+            if level == "DERS":
+                # 'os.walk' ve 'os.listdir' burada, 'Beyin' içinde çağrılır
+                data = self.beyin.get_ders_details_data(folder_path)
+            elif level == "KONU":
+                data = self.beyin.get_konu_details_data(folder_path)
+            elif level == "TUR":
+                # (Şimdilik anında yükle, veya 'get_tur_details_data' ekle)
+                data = self.beyin.get_tur_details_data(folder_path) # (Beyin'e eklemelisin)
+            elif level == "ZORLUK":
+                # (Şimdilik anında yükle, veya 'get_zorluk_details_data' ekle)
+                data = self.beyin.get_zorluk_details_data(folder_path) # (Beyin'e eklemelisin)
+            
+            # Sonucu ana thread'e geri yolla
+            self.after(0, self._on_details_loaded, data, level)
+            
+        except Exception as e:
+            logger.error(f"Detay yükleme thread'i çöktü: {e}", exc_info=True)
+            self.after(0, self._on_details_loaded, None, None) # Hata durumunda
+
+    def _on_details_loaded(self, data, level):
+        """
+        !!! BU FONKSİYON ANA UI THREAD'İNDE ÇALIŞIR !!!
+        Hazır 'data'yı alıp UI'ı çizer.
+        """
+        # Temizle (Yükleniyor... mesajını sil)
+        for widget in self.detail_scroll.winfo_children():
+            widget.destroy()
+            
+        if data is None:
+            ctk.CTkLabel(
+                self.detail_scroll,
+                text="❌ Detaylar yüklenemedi.",
+                font=ctk.CTkFont(family="Segoe UI", size=11),
+                text_color="#dc3545"
+            ).pack(pady=20)
+            return
+
+        # 'data'yı kullanarak ilgili çizim fonksiyonunu çağır
         if level == "DERS":
-            self.show_ders_details(folder_path)
+            self.show_ders_details(data) # Artık 'data' alıyor
         elif level == "KONU":
-            self.show_konu_details(folder_path)
+            self.show_konu_details(data) # Artık 'data' alıyor
         elif level == "TUR":
-            self.show_tur_details(folder_path)
+            self.show_tur_details(data) # Artık 'data' alıyor
         elif level == "ZORLUK":
-            self.show_zorluk_details(folder_path)
+            self.show_zorluk_details(data) # Artık 'data' alıyor
         else:
             self.show_detail_initial_message()
-
+        
     def create_detail_row(self, icon, label, value, text_color="#2d3436"):
         """Detay satırı oluştur"""
         row_frame = ctk.CTkFrame(self.detail_scroll, fg_color="transparent")
@@ -1354,77 +1195,19 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
         )
         value_text.pack(side="left", fill="x", expand=True)
     
-    def show_ders_details(self, folder_path):
-        """Ders seviyesi detayları"""
-        ders_adi = os.path.basename(folder_path)
-
-        # Başlık
-        title = ctk.CTkLabel(
-            self.detail_scroll,
-            text=f"📚 DERS: {ders_adi}",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color="#2d3436"
-        )
-        title.pack(pady=(5, 10))
-
-        # Yol
-        relative_path = self.get_relative_path(folder_path)
-        self.create_detail_row("📍", "Yol", relative_path)
-
-        # Ayırıcı
-        ctk.CTkLabel(
-            self.detail_scroll,
-            text="─" * 40,
-            text_color="#e0e0e0",
-            font=ctk.CTkFont(size=8)
-        ).pack(pady=5)
-
-        # İstatistikler
-        try:
-            konular = [
-                d for d in os.listdir(folder_path)
-                if os.path.isdir(os.path.join(folder_path, d))
-            ]
-
-            total_images = self.count_all_images_recursive_cached(folder_path)
-            total_size = self.get_folder_size_cached(folder_path)
-            last_modified = self.get_last_modified(folder_path)
-
-            self.create_detail_row("📂", "Toplam Konu", len(konular))
-            self.create_detail_row("📷", "Toplam Resim", total_images)
-            self.create_detail_row("💾", "Toplam Boyut", self.format_file_size(total_size))
-            self.create_detail_row("📅", "Son Güncelleme", last_modified)
-
-            # Ayırıcı
-            ctk.CTkLabel(
-                self.detail_scroll,
-                text="─" * 40,
-                text_color="#e0e0e0",
-                font=ctk.CTkFont(size=8)
-            ).pack(pady=5)
-
-            # Konu dağılımı
-            ctk.CTkLabel(
-                self.detail_scroll,
-                text="📋 Konu Dağılımı:",
-                font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-                text_color="#2d3436"
-            ).pack(anchor="w", pady=(5, 5))
-
-            for konu in sorted(konular):
-                konu_path = os.path.join(folder_path, konu)
-                konu_images = self.count_all_images_recursive_cached(konu_path)
-                self.create_detail_row("📁", konu, f"{konu_images} resim", text_color="#2d3436")
-
-        except Exception as e:
-            logger.error(f"Ders detayları gösterme hatası: {e}")
+    def show_konu_details(self, data):
+        """Konu seviyesi detayları (Sadece UI çizer, 'data' bekler)"""
         
-    def show_konu_details(self, folder_path):
-        """Konu seviyesi detayları"""
-        konu_adi = os.path.basename(folder_path)
-        ders_adi = os.path.basename(os.path.dirname(folder_path))
+        # 1. Veriyi 'data' sözlüğünden al (Artık I/O yok)
+        konu_adi = data.get('konu_adi', 'Bilinmiyor')
+        ders_adi = data.get('ders_adi', 'Bilinmiyor')
+        relative_path = data.get('relative_path', '-')
+        total_images = data.get('total_images', 0)
+        total_size_str = self.beyin._format_size(data.get('total_size', 0))
+        last_modified = data.get('last_modified', '-')
+        tur_stats = data.get('tur_stats', []) # Beyin'den gelen Test/Yazılı verisi
 
-        # Başlık
+        # 2. UI'ı Çiz (Eski kodundan kopyalandı, I/O yok)
         title = ctk.CTkLabel(
             self.detail_scroll,
             text=f"📖 KONU: {konu_adi}",
@@ -1441,8 +1224,6 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
         )
         subtitle.pack(pady=(0, 10))
 
-        # Yol
-        relative_path = self.get_relative_path(folder_path)
         self.create_detail_row("📍", "Yol", relative_path)
 
         # Ayırıcı
@@ -1453,68 +1234,95 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
             font=ctk.CTkFont(size=8)
         ).pack(pady=5)
 
-        # İstatistikler
-        try:
-            total_images = self.count_all_images_recursive_cached(folder_path)
-            total_size = self.get_folder_size_cached(folder_path)
-            last_modified = self.get_last_modified(folder_path)
+        # İstatistikler (Artık 'try' bloğuna gerek yok)
+        self.create_detail_row("📷", "Toplam Resim", total_images)
+        self.create_detail_row("💾", "Toplam Boyut", total_size_str)
+        self.create_detail_row("📅", "Son Güncelleme", last_modified)
 
-            self.create_detail_row("📷", "Toplam Resim", total_images)
-            self.create_detail_row("💾", "Toplam Boyut", self.format_file_size(total_size))
-            self.create_detail_row("📅", "Son Güncelleme", last_modified)
+        # Ayırıcı
+        ctk.CTkLabel(
+            self.detail_scroll,
+            text="─" * 40,
+            text_color="#e0e0e0",
+            font=ctk.CTkFont(size=8)
+        ).pack(pady=5)
 
-            # Ayırıcı
-            ctk.CTkLabel(
-                self.detail_scroll,
-                text="─" * 40,
-                text_color="#e0e0e0",
-                font=ctk.CTkFont(size=8)
-            ).pack(pady=5)
+        # Test/Yazılı dağılımı
+        ctk.CTkLabel(
+            self.detail_scroll,
+            text="📋 Test/Yazılı Dağılımı:",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#2d3436"
+        ).pack(anchor="w", pady=(5, 5))
 
-            # Test/Yazılı dağılımı
-            ctk.CTkLabel(
-                self.detail_scroll,
-                text="📋 Test/Yazılı Dağılımı:",
-                font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-                text_color="#2d3436"
-            ).pack(anchor="w", pady=(5, 5))
+        # 3. 'Beyin'den gelen hazır 'tur_stats' verisini çiz
+        for tur_data in tur_stats:
+            tur_adi = tur_data['ad']
+            if tur_data['exists']:
+                # Tür başlığı (Klasör var)
+                ctk.CTkLabel(
+                    self.detail_scroll,
+                    text=f"  📁 {tur_adi}:",
+                    font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+                    text_color="#2d3436"
+                ).pack(anchor="w", pady=(5, 2))
 
-            for tur in ["Test", "Yazılı"]:
-                tur_path = os.path.join(folder_path, tur)
-                if os.path.exists(tur_path):
-                    # Tür başlığı
-                    ctk.CTkLabel(
-                        self.detail_scroll,
-                        text=f"  📁 {tur}:",
-                        font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-                        text_color="#2d3436"
-                    ).pack(anchor="w", pady=(5, 2))
+                # Zorluk seviyeleri
+                for zorluk_data in tur_data['zorlukler']:
+                    zorluk_adi = zorluk_data['ad']
+                    if zorluk_data['exists']:
+                        zorluk_images = zorluk_data['images']
+                        status = "✅" if zorluk_images > 0 else "❌"
+                        color = "#28a745" if status == "✅" else "#dc3545"
+                        
+                        ctk.CTkLabel(
+                            self.detail_scroll,
+                            text=f"    {status} {zorluk_adi}: {zorluk_images} resim",
+                            font=ctk.CTkFont(family="Segoe UI", size=9),
+                            text_color=color,
+                            anchor="w"
+                        ).pack(anchor="w", pady=1)
+                    else:
+                        # Zorluk klasörü yok
+                        ctk.CTkLabel(
+                            self.detail_scroll,
+                            text=f"    ❌ {zorluk_adi}: (Klasör yok)",
+                            font=ctk.CTkFont(family="Segoe UI", size=9),
+                            text_color="#dc3545",
+                            anchor="w"
+                        ).pack(anchor="w", pady=1)
+                        
+            else:
+                # Tür başlığı (Klasör yok)
+                ctk.CTkLabel(
+                    self.detail_scroll,
+                    text=f"  📁 {tur_adi}:",
+                    font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+                    text_color="#6c757d" # Soluk renk
+                ).pack(anchor="w", pady=(5, 2))
+                
+                # Klasörün olmadığını belirten mesaj
+                ctk.CTkLabel(
+                    self.detail_scroll,
+                    text="    ❌ (Klasör bulunamadı)",
+                    font=ctk.CTkFont(family="Segoe UI", size=9),
+                    text_color="#dc3545",
+                    anchor="w"
+                ).pack(anchor="w", pady=1)
 
-                    # Zorluk seviyeleri
-                    for zorluk in ["Kolay", "Orta", "Zor"]:
-                        zorluk_path = os.path.join(tur_path, zorluk)
-                        if os.path.exists(zorluk_path):
-                            zorluk_images = self.count_images(zorluk_path)
-                            status = "✅" if zorluk_images > 0 else "❌"
-                            color = "#28a745" if status == "✅" else "#dc3545"
+    def show_tur_details(self, data):
+        """Tür (Test/Yazılı) seviyesi detayları (Sadece UI çizer, 'data' bekler)"""
+        
+        # 1. Veriyi 'data' sözlüğünden al
+        tur_adi = data.get('tur_adi', 'Bilinmiyor')
+        konu_adi = data.get('konu_adi', 'Bilinmiyor')
+        relative_path = data.get('relative_path', '-')
+        total_images = data.get('total_images', 0)
+        total_size_str = self.beyin._format_size(data.get('total_size', 0))
+        last_modified = data.get('last_modified', '-')
+        zorluk_stats = data.get('zorluk_stats', []) # Beyin'den gelen Zorluk verisi
 
-                            ctk.CTkLabel(
-                                self.detail_scroll,
-                                text=f"    {status} {zorluk}: {zorluk_images} resim",
-                                font=ctk.CTkFont(family="Segoe UI", size=9),
-                                text_color=color,
-                                anchor="w"
-                            ).pack(anchor="w", pady=1)
-
-        except Exception as e:
-            logger.error(f"Konu detayları alınırken hata: {e}")
-
-    def show_tur_details(self, folder_path):
-        """Tür (Test/Yazılı) seviyesi detayları"""
-        tur_adi = os.path.basename(folder_path)
-        konu_adi = os.path.basename(os.path.dirname(folder_path))
-
-        # Başlık
+        # 2. UI'ı Çiz (Eski kodundan kopyalandı, I/O yok)
         title = ctk.CTkLabel(
             self.detail_scroll,
             text=f"📁 TÜR: {tur_adi}",
@@ -1531,8 +1339,6 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
         )
         subtitle.pack(pady=(0, 10))
 
-        # Yol
-        relative_path = self.get_relative_path(folder_path)
         self.create_detail_row("📍", "Yol", relative_path)
 
         # Ayırıcı
@@ -1543,17 +1349,58 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
             font=ctk.CTkFont(size=8)
         ).pack(pady=5)
 
-        # İstatistikler
-        try:
-            total_images = self.count_all_images_recursive_cached(folder_path)
-            total_size = self.get_folder_size_cached(folder_path)
-            last_modified = self.get_last_modified(folder_path)
+        # İstatistikler (Artık 'try' bloğuna gerek yok)
+        self.create_detail_row("📷", "Toplam Resim", total_images)
+        self.create_detail_row("💾", "Toplam Boyut", total_size_str)
+        self.create_detail_row("📅", "Son Güncelleme", last_modified)
 
-            self.create_detail_row("📷", "Toplam Resim", total_images)
-            self.create_detail_row("💾", "Toplam Boyut", self.format_file_size(total_size))
-            self.create_detail_row("📅", "Son Güncelleme", last_modified)
+        # Ayırıcı
+        ctk.CTkLabel(
+            self.detail_scroll,
+            text="─" * 40,
+            text_color="#e0e0e0",
+            font=ctk.CTkFont(size=8)
+        ).pack(pady=5)
 
-            # Ayırıcı
+        # Zorluk dağılımı
+        ctk.CTkLabel(
+            self.detail_scroll,
+            text="📊 Zorluk Dağılımı:",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#2d3436"
+        ).pack(anchor="w", pady=(5, 5))
+
+        bos_seviyeler = []
+        
+        # 3. 'Beyin'den gelen hazır 'zorluk_stats' verisini çiz
+        for zorluk_data in zorluk_stats:
+            zorluk_adi = zorluk_data['ad']
+            if zorluk_data['exists']:
+                zorluk_images = zorluk_data['images']
+                zorluk_size_str = self.beyin._format_size(zorluk_data['size'])
+                status = "✅" if zorluk_images > 0 else "❌"
+
+                if zorluk_images == 0:
+                    bos_seviyeler.append(zorluk_adi)
+
+                color = "#28a745" if status == "✅" else "#dc3545"
+                self.create_detail_row(
+                    status,
+                    zorluk_adi,
+                    f"{zorluk_images} resim ({zorluk_size_str})",
+                    text_color=color
+                )
+            else:
+                # Zorluk klasörü yok
+                self.create_detail_row(
+                    "❌",
+                    zorluk_adi,
+                    "(Klasör yok)",
+                    text_color="#dc3545"
+                )
+
+        # Eksik uyarısı
+        if bos_seviyeler:
             ctk.CTkLabel(
                 self.detail_scroll,
                 text="─" * 40,
@@ -1561,62 +1408,91 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
                 font=ctk.CTkFont(size=8)
             ).pack(pady=5)
 
-            # Zorluk dağılımı
+            warning_frame = ctk.CTkFrame(self.detail_scroll, fg_color="#fff3cd", corner_radius=5)
+            warning_frame.pack(fill="x", pady=5, padx=5)
+
+            warning_text = f"💡 Öneri: {', '.join(bos_seviyeler)} seviye{'sine' if len(bos_seviyeler) == 1 else 'lerine'} resim ekleyin"
             ctk.CTkLabel(
-                self.detail_scroll,
-                text="📊 Zorluk Dağılımı:",
-                font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-                text_color="#2d3436"
-            ).pack(anchor="w", pady=(5, 5))
+                warning_frame,
+                text=warning_text,
+                font=ctk.CTkFont(family="Segoe UI", size=9),
+                text_color="#856404",
+                wraplength=300
+            ).pack(pady=5, padx=5)
 
-            bos_seviyeler = []
-            for zorluk in ["Kolay", "Orta", "Zor"]:
-                zorluk_path = os.path.join(folder_path, zorluk)
-                if os.path.exists(zorluk_path):
-                    zorluk_images = self.count_images(zorluk_path)
-                    zorluk_size = self.get_folder_size_cached(zorluk_path)
-                    status = "✅" if zorluk_images > 0 else "❌"
-
-                    if zorluk_images == 0:
-                        bos_seviyeler.append(zorluk)
-
-                    color = "#28a745" if status == "✅" else "#dc3545"
-                    self.create_detail_row(
-                        status,
-                        zorluk,
-                        f"{zorluk_images} resim ({self.format_file_size(zorluk_size)})",
-                        text_color=color
-                    )
-
-            # Eksik uyarısı
-            if bos_seviyeler:
-                ctk.CTkLabel(
-                    self.detail_scroll,
-                    text="─" * 40,
-                    text_color="#e0e0e0",
-                    font=ctk.CTkFont(size=8)
-                ).pack(pady=5)
-
-                warning_frame = ctk.CTkFrame(self.detail_scroll, fg_color="#fff3cd", corner_radius=5)
-                warning_frame.pack(fill="x", pady=5, padx=5)
-
-                warning_text = f"💡 Öneri: {', '.join(bos_seviyeler)} seviye{'sine' if len(bos_seviyeler) == 1 else 'lerine'} resim ekleyin"
-                ctk.CTkLabel(
-                    warning_frame,
-                    text=warning_text,
-                    font=ctk.CTkFont(family="Segoe UI", size=9),
-                    text_color="#856404",
-                    wraplength=300
-                ).pack(pady=5, padx=5)
-
-        except Exception as e:
-            logger.error(f"Tür detayları gösterme hatası: {e}")
+    def show_ders_details(self, data):
+        """Ders seviyesi detayları (Sadece UI çizer, 'data' bekler)"""
         
-    def show_zorluk_details(self, folder_path):
-        """Zorluk seviyesi detayları (Kolay/Orta/Zor)"""
-        zorluk_adi = os.path.basename(folder_path)
+        # 1. Veriyi 'data' sözlüğünden al (Artık I/O yok)
+        ders_adi = data.get('ders_adi', 'Bilinmiyor')
+        relative_path = data.get('relative_path', '-')
+        konular = data.get('konular', [])
+        total_images = data.get('total_images', 0)
+        # _format_size 'beyin'de, onu çağırıyoruz
+        total_size_str = self.beyin._format_size(data.get('total_size', 0))
+        last_modified = data.get('last_modified', '-')
 
-        # Başlık
+        # 2. UI'ı Çiz
+        title = ctk.CTkLabel(
+            self.detail_scroll,
+            text=f"📚 DERS: {ders_adi}",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#2d3436"
+        )
+        title.pack(pady=(5, 10))
+
+        self.create_detail_row("📍", "Yol", relative_path)
+
+        # Ayırıcı (SyntaxError düzeltilmiş hali)
+        ctk.CTkLabel(
+            self.detail_scroll,
+            text="─" * 40,
+            text_color="#e0e0e0",
+            font=ctk.CTkFont(size=8)
+        ).pack(pady=5)
+
+        self.create_detail_row("📂", "Toplam Konu", len(konular))
+        self.create_detail_row("📷", "Toplam Resim", total_images)
+        self.create_detail_row("💾", "Toplam Boyut", total_size_str)
+        self.create_detail_row("📅", "Son Güncelleme", last_modified)
+
+        # Ayırıcı 2 (SyntaxError düzeltilmiş hali)
+        ctk.CTkLabel(
+            self.detail_scroll,
+            text="─" * 40,
+            text_color="#e0e0e0",
+            font=ctk.CTkFont(size=8)
+        ).pack(pady=5)
+
+        ctk.CTkLabel(
+            self.detail_scroll,
+            text="📋 Konu Dağılımı:",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color="#2d3436"
+        ).pack(anchor="w", pady=(5, 5))
+
+        if not konular:
+             ctk.CTkLabel(
+                self.detail_scroll,
+                text="  (Alt konu bulunamadı)",
+                font=ctk.CTkFont(family="Segoe UI", size=9),
+                text_color="#6c757d"
+            ).pack(anchor="w", pady=1, padx=5)
+        else:
+            for konu_data in konular:
+                self.create_detail_row("📁", konu_data['ad'], f"{konu_data['resim_sayisi']} resim", text_color="#2d3436")
+                
+    def show_zorluk_details(self, data):
+        """Zorluk seviyesi detayları (Sadece UI çizer, 'data' bekler)"""
+        
+        # 1. Veriyi 'data' sözlüğünden al
+        zorluk_adi = data.get('zorluk_adi', 'Bilinmiyor')
+        relative_path = data.get('relative_path', '-')
+        total_images = data.get('total_images', 0)
+        total_size_str = self.beyin._format_size(data.get('total_size', 0))
+        last_modified = data.get('last_modified', '-')
+
+        # 2. UI'ı Çiz (Eski kodundan kopyalandı, I/O yok)
         title = ctk.CTkLabel(
             self.detail_scroll,
             text=f"⭐ ZORLUK: {zorluk_adi}",
@@ -1625,8 +1501,6 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
         )
         title.pack(pady=(5, 10))
 
-        # Yol
-        relative_path = self.get_relative_path(folder_path)
         self.create_detail_row("📍", "Yol", relative_path)
 
         # Ayırıcı
@@ -1637,15 +1511,7 @@ class ResimYonetimiPenceresi(ctk.CTkFrame):
             font=ctk.CTkFont(size=8)
         ).pack(pady=5)
 
-        try:
-            total_images = self.count_images(folder_path)
-            total_size = self.get_folder_size_cached(folder_path)
-            last_modified = self.get_last_modified(folder_path)
-
-            self.create_detail_row("📷", "Toplam Resim", total_images)
-            self.create_detail_row("💾", "Toplam Boyut", self.format_file_size(total_size))
-            self.create_detail_row("📅", "Son Güncelleme", last_modified)
-
-        except Exception as e:
-            logger.error(f"Zorluk detayları gösterme hatası: {e}")
-        
+        # İstatistikler (Artık 'try' bloğuna gerek yok)
+        self.create_detail_row("📷", "Toplam Resim", total_images)
+        self.create_detail_row("💾", "Toplam Boyut", total_size_str)
+        self.create_detail_row("📅", "Son Güncelleme", last_modified)

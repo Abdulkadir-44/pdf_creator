@@ -1,25 +1,24 @@
-touch .gitignore
-```
+# Build artefaktları (PyInstaller)
+build/
+dist/
+*.spec
 
-**Varsa düzenle:**
-
-`.gitignore` dosyasına şunları ekle:
-```
-# Python
+# Python cache
 __pycache__/
+*.pyc
 *.py[cod]
 *$py.class
 *.so
 .Python
 
-# Logs
-*.log
+# Loglar (Hem klasörü hem de dışarıdaki .log dosyalarını yok say)
 logs/
+*.log
 
-# IDE
+# IDE Ayarları (main'den alındı)
 .vscode/
 .idea/
 
-# OS
+# OS (İşletim Sistemi) çöp dosyaları (main'den alındı)
 .DS_Store
 Thumbs.db
