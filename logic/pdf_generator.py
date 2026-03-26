@@ -106,7 +106,7 @@ class PDFCreator:
         cols = 2
         soru_font_size = 10
         soru_spacing = 8
-        image_spacing = 10
+        image_spacing = 50
 
         usable_width = page_width - left_margin - right_margin
         col_width = (usable_width - col_gap) / cols
@@ -409,7 +409,7 @@ class PDFCreator:
         cols = 2
         soru_font_size = 10
         soru_spacing = 8
-        image_spacing = 10
+        image_spacing = 50
 
         usable_width = page_width - left_margin - right_margin
         col_width = (usable_width - col_gap) / cols
