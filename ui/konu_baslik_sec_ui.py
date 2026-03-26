@@ -23,7 +23,7 @@ class KonuBaslikSecmePenceresi(ctk.CTkFrame):
             'primary_hover': '#3730a3',
             'secondary': '#7209b7',
             'success': '#228b22',
-            'danger': '#ff006e',
+            'danger': '#dc3545',
             'warning': '#ffbe0b',
             'dark': '#2b2d42',
             'light': '#ffffff',
@@ -158,7 +158,7 @@ class KonuBaslikSecmePenceresi(ctk.CTkFrame):
         
         clear_all_btn = ctk.CTkButton(
             btn_frame, text="Temizle", width=80, height=32, corner_radius=8,
-            fg_color=self.colors['danger'], hover_color="#e0005a", text_color=self.colors['light'],
+            fg_color=self.colors['danger'], hover_color="#b02a37", text_color=self.colors['light'],
             font=ctk.CTkFont(size=12, weight="bold"), command=self.clear_all
         )
         clear_all_btn.pack(side="left", padx=2)
@@ -435,7 +435,7 @@ class KonuBaslikSecmePenceresi(ctk.CTkFrame):
             for konu_adi in selected:
                 self.create_selected_item(konu_adi)
             self.continue_btn.configure(state="normal", fg_color=self.colors['success'],
-                                        hover_color="#05e090", text_color=self.colors['dark'])
+                                        hover_color="#1e7e34", text_color=self.colors['light'])
 
     def create_selected_item(self, konu_adi):
         """Seçilen konu öğesi"""
