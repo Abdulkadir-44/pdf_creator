@@ -439,10 +439,21 @@ class OturumYoneticisi:
                                 konu = self.find_topic_from_path(gorsel_path)
                                 if konu:
                                     gercek_dagilim[konu] = gercek_dagilim.get(konu, 0) + 1
+                            toplam_soru = len(self.controller.secilen_gorseller)
+                            mesaj = (
+                                f"Kayıt Yeri: {kayit_yeri}\n\n"
+                                f"{toplam_soru} soru PDF formatında kaydedildi\n\n"
+                                "Konu Dağılımı:\n" +
+                                "\n".join([f"• {konu}: {sayi} soru" for konu, sayi in gercek_dagilim.items()])
+                            )
+                            if self.controller.soru_tipi_var.get().lower() == "test" and toplam_soru > 60:
+                                mesaj += (
+                                    f"\n\n⚠️ Optik cevap anahtarı şablonu 60 soru kapasitesine sahiptir.\n"
+                                    f"61. sorudan itibaren ({toplam_soru - 60} soru) cevap anahtarında yer almayacak."
+                                )
                             self.dialog_yoneticisi.show_notification(
                                 "PDF Başarıyla Oluşturuldu!",
-                                f"Kayıt Yeri: {kayit_yeri}\n\n{len(self.controller.secilen_gorseller)} soru PDF formatında kaydedildi\n\nKonu Dağılımı:\n" +
-                                "\n".join([f"• {konu}: {sayi} soru" for konu, sayi in gercek_dagilim.items()])
+                                mesaj
                             )
                         else:
                             self.logger.error("PDF kaydedilemedi")
