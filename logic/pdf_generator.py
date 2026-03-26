@@ -167,7 +167,12 @@ class PDFCreator:
                     uygun_sorular = []
                     for soru in tum_soru_analizi:
                         if soru['index'] not in kullanilan_global_indices:
+                            # Normal kontrol: tam boşlukla sığıyor mu?
                             if soru['total_height'] <= kalan_bosluk:
+                                uygun_sorular.append(soru)
+                            # Son soru kontrolü: sadece resim + soru_spacing sığıyor mu?
+                            # (Sütunun son sorusu için image_spacing şart değil)
+                            elif (soru['final_size'][1] + soru_spacing) <= kalan_bosluk:
                                 uygun_sorular.append(soru)
 
                     if not uygun_sorular:
@@ -177,7 +182,7 @@ class PDFCreator:
                     
                     bu_sayfa_sutunlari[sutun_index].append(secilen_soru)
                     kullanilan_global_indices.add(secilen_soru['index'])
-                    current_y_positions[sutun_index] -= (secilen_soru['total_height'] + image_spacing)
+                    current_y_positions[sutun_index] -= secilen_soru['total_height']
 
             total_placed_this_page = sum(len(col) for col in bu_sayfa_sutunlari)
             if total_placed_this_page == 0 and len(kullanilan_global_indices) < toplam_soru_sayisi:

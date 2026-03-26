@@ -470,7 +470,7 @@ class OturumYoneticisi:
             self.logger.error(f"PDF oluşturma genel hatası: {e}", exc_info=True)
             self.dialog_yoneticisi.show_notification(
                 "Hata",
-                f"Beklenmeyen bir hata oluştu:\n{str(e)}\n\Lütfen konsolu kontrol edin."
+                f"Beklenmeyen bir hata oluştu:\n{str(e)}\nLütfen konsolu kontrol edin."
             )
                          
     def basit_pdf_olustur(self):
