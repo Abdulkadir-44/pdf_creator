@@ -76,16 +76,77 @@ class DersSecmePenceresi(ctk.CTkFrame):
         logger.info("UI kurulumu tamamlandı")
 
     def show_initial_message(self):
-        """Başlangıç mesajını göster"""
+        """Başlangıç mesajını göster — Klasör hiyerarşisi rehberi"""
         logger.debug("Başlangıç mesajı gösteriliyor")
-        message_label = ctk.CTkLabel(
+
+        # Üst başlık
+        ctk.CTkLabel(
             self.scroll_frame,
-            text="🔍 Lütfen üstteki 'Ana Klasör Seç' butonuna tıklayarak\nsoru klasörünüzü seçin.",
-            font=ctk.CTkFont(family="Segoe UI", size=14),
+            text="📂 Ana Klasör Seç butonuna tıklayarak soru klasörünüzü seçin",
+            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+            text_color="#4a90e2",
+            justify="center"
+        ).pack(pady=(30, 5))
+
+        ctk.CTkLabel(
+            self.scroll_frame,
+            text="Klasörünüzün aşağıdaki yapıda olması gerekmektedir:",
+            font=ctk.CTkFont(family="Segoe UI", size=12),
             text_color="#6c757d",
             justify="center"
+        ).pack(pady=(0, 15))
+
+        # Hiyerarşi ağacı
+        hierarchy = (
+            "📂  Ana Klasör  (Seçeceğiniz klasör)\n"
+            "│\n"
+            "├── 📁  Ders  (ör: Fizik, Matematik)\n"
+            "│     │\n"
+            "│     ├── 📁  Konu Başlığı  (ör: Mekanik, Optik)\n"
+            "│     │     │\n"
+            "│     │     ├── 📁  test\n"
+            "│     │     │     ├── 📁  kolay  →  🖼️ soru resimleri\n"
+            "│     │     │     ├── 📁  orta   →  🖼️ soru resimleri\n"
+            "│     │     │     └── 📁  zor    →  🖼️ soru resimleri\n"
+            "│     │     │\n"
+            "│     │     └── 📁  yazılı\n"
+            "│     │           ├── 📁  kolay  →  🖼️ soru resimleri\n"
+            "│     │           ├── 📁  orta   →  🖼️ soru resimleri\n"
+            "│     │           └── 📁  zor    →  🖼️ soru resimleri\n"
+            "│     │\n"
+            "│     └── 📁  Konu Başlığı 2  (ör: Elektrik)\n"
+            "│           └── ...\n"
+            "│\n"
+            "└── 📁  Ders 2  (ör: Kimya)\n"
+            "      └── ..."
         )
-        message_label.pack(pady=50)
+
+        tree_frame = ctk.CTkFrame(
+            self.scroll_frame,
+            fg_color="#f0f4f8",
+            corner_radius=12,
+            border_width=1,
+            border_color="#d0d9e3"
+        )
+        tree_frame.pack(pady=5, padx=40, fill="x")
+
+        ctk.CTkLabel(
+            tree_frame,
+            text=hierarchy,
+            font=ctk.CTkFont(family="Consolas", size=13),
+            text_color="#2d3436",
+            justify="left"
+        ).pack(pady=20, padx=25)
+
+        # Alt uyarı notu
+        ctk.CTkLabel(
+            self.scroll_frame,
+            text="⚠️  Konu Başlığı katmanını atlamayın — doğrudan test/yazılı klasörü Ders altına koyamazsınız.",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#e67e22",
+            justify="center",
+            wraplength=600
+        ).pack(pady=(12, 30))
 
     def ana_klasoru_sec(self):
         """Ana klasörü seç ve ders butonlarını göster"""
