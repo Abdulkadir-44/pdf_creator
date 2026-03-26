@@ -16,6 +16,8 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 import sys
 
+# Logger'ı en başta tanımla — font yükleme bloğunda da kullanılıyor
+logger = logging.getLogger(__name__)
 
 # Fontları 'resources/fonts' klasöründen yükle
 try:
@@ -62,9 +64,6 @@ except Exception as e:
 DEFAULT_FONT = DEFAULT_FONT_REGULAR
 
 
-# Yeni loglama sistemi: Bu modülün kendi logger'ını al.
-# Adı otomatik olarak 'logic.pdf_generator' olacaktır.
-logger = logging.getLogger(__name__)
 
 class PDFCreator:
     def __init__(self):

@@ -433,10 +433,16 @@ class OturumYoneticisi:
                         if pdf.kaydet(cikti_dosya, self.controller.sayfa_haritasi):
                             kayit_yeri = f"{os.path.basename(os.path.dirname(cikti_dosya))}/{os.path.basename(cikti_dosya)}"
                             self.logger.info(f"PDF başarıyla oluşturuldu: {os.path.basename(cikti_dosya)}")
+                            # Gerçek konu dağılımını secilen_gorseller'den hesapla
+                            gercek_dagilim = {}
+                            for gorsel_path in self.controller.secilen_gorseller:
+                                konu = self.find_topic_from_path(gorsel_path)
+                                if konu:
+                                    gercek_dagilim[konu] = gercek_dagilim.get(konu, 0) + 1
                             self.dialog_yoneticisi.show_notification(
                                 "PDF Başarıyla Oluşturuldu!",
-                                f"Kayıt Yeri: {kayit_yeri}\n\n{len(self.controller.secilen_gorseller)} soru PDF formatında kaydedildi\n\nKonu Dağılımı:\n" + 
-                                "\n".join([f"• {konu}: {sayi} soru" for konu, sayi in self.controller.konu_soru_dagilimi.items()])
+                                f"Kayıt Yeri: {kayit_yeri}\n\n{len(self.controller.secilen_gorseller)} soru PDF formatında kaydedildi\n\nKonu Dağılımı:\n" +
+                                "\n".join([f"• {konu}: {sayi} soru" for konu, sayi in gercek_dagilim.items()])
                             )
                         else:
                             self.logger.error("PDF kaydedilemedi")

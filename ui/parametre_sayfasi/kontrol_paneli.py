@@ -204,14 +204,16 @@ class KontrolPaneli(ctk.CTkFrame):
         button_container = ctk.CTkFrame(buttons_frame, fg_color="transparent")
         button_container.pack(expand=True)
         
-        # PDF OLUŞTUR Butonu
+        # PDF OLUŞTUR Butonu — soru yoksa devre dışı
+        has_questions = len(self.controller.secilen_gorseller) > 0
         ctk.CTkButton(
             button_container, text="PDF Oluştur",
-            # ESKİ: command=self.pdf_olustur
             command=self.callbacks['on_pdf_olustur'],
             font=ctk.CTkFont(size=14, weight="bold"),
             width=160, height=40, corner_radius=10,
-            fg_color="#28a745", hover_color="#218838"
+            fg_color="#28a745" if has_questions else "#adb5bd",
+            hover_color="#218838" if has_questions else "#adb5bd",
+            state="normal" if has_questions else "disabled"
         ).pack(side="left", padx=(0, 10))
         
         # GERİ Butonu
