@@ -2,6 +2,7 @@
 
 import os
 import logging
+from collections import OrderedDict
 from PIL import Image
 import shutil  
 from datetime import datetime 
@@ -11,6 +12,8 @@ IMAGE_EXTS = ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.webp')
 
 class ResimYonetimiBeyni:
     
+    THUMB_CACHE_MAX = 50  # Bellekte tutulacak maksimum thumbnail sayısı
+
     def __init__(self):
         logger.info("Resim Yönetimi Beyni başlatıldı.")
         
@@ -18,7 +21,7 @@ class ResimYonetimiBeyni:
         self._count_cache = {}
         self._size_cache = {}
         self.ana_klasor_yolu = None
-        self._thumb_cache = {} # PIL Thumbnail cache (PIL.Image nesneleri tutar)
+        self._thumb_cache = OrderedDict()  # LRU Cache — en fazla THUMB_CACHE_MAX öğe tutar
 
 
     def set_ana_klasor(self, path: str):
@@ -244,16 +247,24 @@ class ResimYonetimiBeyni:
         
     def get_pil_thumbnail(self, path: str, max_size: tuple = (180, 180)):
         """
-        Bir resmin PIL.Image thumbnail'ını üretir ve cache'ler.
-        CTK BİLMEZ. Sadece PIL bilir.
+        Bir resmin PIL.Image thumbnail'ını üretir ve LRU cache'ler.
+        En fazla THUMB_CACHE_MAX öğe tutar, yeni gelince en eski silinir.
         """
         if path in self._thumb_cache:
+            # LRU: Erişilen öğeyi sona taşı (en yeni = son)
+            self._thumb_cache.move_to_end(path)
             return self._thumb_cache[path]
         
         try:
             img = Image.open(path)
-            # Kodunuzda LANCZOS kullanılıyor, onu koruyoruz
-            img.thumbnail(max_size, Image.LANCZOS) 
+            img.thumbnail(max_size, Image.LANCZOS)
+            
+            # Cache sınırını kontrol et — doluysa en eskiyi sil
+            if len(self._thumb_cache) >= self.THUMB_CACHE_MAX:
+                removed_path, removed_img = self._thumb_cache.popitem(last=False)
+                removed_img.close()  # PIL belleğini serbest bırak
+                logger.debug(f"LRU cache dolu, en eski silindi: {os.path.basename(removed_path)}")
+            
             self._thumb_cache[path] = img
             return img
         except Exception as e:
