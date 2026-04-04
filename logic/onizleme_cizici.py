@@ -79,6 +79,19 @@ class OnizlemeCizici:
         if not os.path.exists(self.font_path_bold):
             self.logger.warning(f"Arial Bold font not found at {self.font_path_bold}. Using Calibri Bold fallback.")
             self.font_path_bold = self.font_path_bold_fallback
+
+    def _get_font(self, is_bold=False, size=24):
+        """Font yükleme yardımcısı — ana font başarısızsa yedek fontu, o da olmazsa default döner."""
+        primary = self.font_path_bold if is_bold else self.font_path_regular
+        fallback = self.font_path_bold_fallback if is_bold else self.font_path_regular_fallback
+        try:
+            return ImageFont.truetype(primary, size)
+        except Exception:
+            try:
+                return ImageFont.truetype(fallback, size)
+            except Exception:
+                self.logger.error("Fontlar yüklenemedi. Varsayılan font kullanılıyor.")
+                return ImageFont.load_default()
         
 
 
@@ -163,16 +176,7 @@ class OnizlemeCizici:
         draw = ImageDraw.Draw(image)
 
         def try_font(pt):
-            try:
-                # Ana fontu (Arial) yükle
-                return ImageFont.truetype(self.font_path_regular, pt)
-            except Exception:
-                try:
-                    # Başarısız olursa yedek fontu (Calibri) yükle
-                    return ImageFont.truetype(self.font_path_regular_fallback, pt)
-                except Exception:
-                    self.logger.error("Hem Arial hem de Calibri fontları yüklenemedi. Varsayılan font kullanılıyor.")
-                    return ImageFont.load_default()
+            return self._get_font(is_bold=False, size=pt)
                 
 
         # DİKKAT: Sabitleri 'self.constants' dict'inden al
@@ -259,15 +263,7 @@ class OnizlemeCizici:
 
                 draw = ImageDraw.Draw(template_copy)
                 
-                try:
-                    # Ana BOLD fontu (Arial Bold) yükle
-                    font = ImageFont.truetype(self.font_path_bold, 24) 
-                except Exception:
-                    try:
-                        # Yedek BOLD fontu (Calibri Bold) yükle
-                        font = ImageFont.truetype(self.font_path_bold_fallback, 24)
-                    except:
-                        font = ImageFont.load_default()
+                font = self._get_font(is_bold=True, size=24)
                 
                 numara_x = x_sol_kenar
                 if soru_no >= 10:
@@ -314,15 +310,7 @@ class OnizlemeCizici:
         yerlestirildi_sayaci = 0 
         
         draw = ImageDraw.Draw(template_copy)
-        try:
-            # Ana BOLD fontu (Arial Bold) yükle
-            numara_font = ImageFont.truetype(self.font_path_bold, soru_numara_font_size)
-        except Exception:
-            try:
-                # Yedek BOLD fontu (Calibri Bold) yükle
-                numara_font = ImageFont.truetype(self.font_path_bold_fallback, soru_numara_font_size)
-            except:
-                numara_font = ImageFont.load_default()
+        numara_font = self._get_font(is_bold=True, size=soru_numara_font_size)
 
         for sutun_index in range(cols):
             sutun_sorulari = bu_sayfanin_sutunlari[sutun_index]
@@ -334,6 +322,7 @@ class OnizlemeCizici:
                 scaled_height = soru_info['final_size'][1] * scale_factor
                 
                 pil_y_top = current_y_positions_tepe[sutun_index] + soru_spacing
+                soru_no = global_offset + yerlestirildi_sayaci + 1
                 
                 try:
                     soru_img = Image.open(soru_info['path'])
@@ -341,20 +330,25 @@ class OnizlemeCizici:
                     soru_img = soru_img.resize((int(scaled_width), int(scaled_height)), resampling_filter)
                     
                     template_copy.paste(soru_img, (int(img_x), int(pil_y_top)))
-                    
-                    soru_no = global_offset + yerlestirildi_sayaci + 1
-                    
-                    numara_x = img_x - (15 * scale_factor)
-                    numara_y = pil_y_top 
-                    if soru_no >= 10:
-                        numara_x -= (5 * scale_factor) 
-                        
-                    draw.text((numara_x + 10, numara_y), f"{soru_no}.", fill="#333333", font=numara_font)
 
                 except Exception as e:
                     self.logger.error(f"PIL Gorsel cizim hatasi: {soru_info['path']}", exc_info=True)
-                    continue
+                    # Bozuk resim yerine kırmızı çerçeveli hata kutusu çiz
+                    draw.rectangle(
+                        [int(img_x), int(pil_y_top),
+                         int(img_x + scaled_width), int(pil_y_top + scaled_height)],
+                        outline="red", width=2
+                    )
+                    draw.text((int(img_x) + 10, int(pil_y_top) + 10), "⚠ Resim okunamadı", fill="red", font=numara_font)
 
+                # Soru numarasını HER DURUMDA yaz (bozuk olsa bile)
+                numara_x = img_x - (15 * scale_factor)
+                numara_y = pil_y_top 
+                if soru_no >= 10:
+                    numara_x -= (5 * scale_factor) 
+                draw.text((numara_x + 10, numara_y), f"{soru_no}.", fill="#333333", font=numara_font)
+
+                # Y ve sayaç HER DURUMDA güncellenir — kayma olmaz
                 current_y_positions_tepe[sutun_index] = pil_y_top + scaled_height + image_spacing
                 yerlestirildi_sayaci += 1
                 

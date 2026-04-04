@@ -76,19 +76,3 @@ def get_answer_for_image(image_path):
         # 7. Beklenmedik bir hata olursa ASLA ÇÖKME
         logger.error(f"Cevap okunurken beklenmedik bir hata oluştu: {image_path}", exc_info=True)
         return "?"
-
-def set_log_level(level):
-    """Logger seviyesini degistirir."""
-    level_map = {
-        'DEBUG': logging.DEBUG,
-        'INFO': logging.INFO,
-        'WARNING': logging.WARNING,
-        'ERROR': logging.ERROR
-    }
-    
-    log_level = level.upper()
-    if log_level in level_map:
-        logger.setLevel(level_map[log_level])
-        logger.info(f"Log seviyesi {log_level} olarak ayarlandi.")
-    else:
-        logger.warning(f"Gecersiz log seviyesi belirtildi: {level}")

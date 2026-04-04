@@ -357,3 +357,86 @@ class DialogYoneticisi:
             fg_color="#6c757d", hover_color="#5a6268"
         )
         hayir_btn.pack(side="left", padx=10)
+
+    def show_kalici_havuz_bitti_dialog(self, tukenen_konular, on_sifirla, on_devam):
+        """
+        Oturum havuzu tükenince kullanıcıya seçenek sunar:
+        - Havuzu sıfırla (her zaman)
+        - Mevcut kadarıyla devam et (yalnızca kalan soru > 0 ise)
+        """
+        try:
+            toplam_kalan = sum(mevcut for _, mevcut, _ in tukenen_konular)
+            hic_kalmadi = toplam_kalan == 0
+
+            konu_listesi = "\n".join([
+                f"• {konu}: {mevcut}/{istened} soru mevcut"
+                for konu, mevcut, istened in tukenen_konular
+            ])
+
+            if hic_kalmadi:
+                mesaj = (
+                    f"Aşağıdaki konu(lar)daki tüm sorular bu oturumda kullanıldı:\n\n"
+                    f"{konu_listesi}\n\n"
+                    f"Devam etmek için havuzu sıfırlamanız gerekiyor.\n"
+                    f"(Önceki PDF'lerdeki sorular tekrar gelebilir)"
+                )
+            else:
+                mesaj = (
+                    f"Aşağıdaki konu(lar)daki oturum soru havuzu tükendi:\n\n"
+                    f"{konu_listesi}\n\n"
+                    f"Ne yapmak istersiniz?"
+                )
+
+            yukseklik = "300" if hic_kalmadi else "340"
+            dialog_window = ctk.CTkToplevel(self.controller)
+            dialog_window.title("Oturum Havuzu Tükendi")
+            dialog_window.geometry(f"520x{yukseklik}")
+            dialog_window.resizable(False, False)
+            dialog_window.transient(self.controller)
+            dialog_window.grab_set()
+
+            try:
+                x = int(self.controller.winfo_x() + self.controller.winfo_width()/2 - 260)
+                y = int(self.controller.winfo_y() + self.controller.winfo_height()/2 - 170)
+                dialog_window.geometry(f"+{x}+{y}")
+            except Exception:
+                pass
+
+            ctk.CTkLabel(dialog_window, text="🔁", font=ctk.CTkFont(size=44),
+                         text_color="#f39c12").pack(pady=(20, 5))
+
+            ctk.CTkLabel(dialog_window, text=mesaj,
+                         font=ctk.CTkFont(size=13), justify="center",
+                         wraplength=460).pack(padx=20, pady=5)
+
+            btn_frame = ctk.CTkFrame(dialog_window, fg_color="transparent")
+            btn_frame.pack(pady=20)
+
+            def _sifirla():
+                dialog_window.destroy()
+                if callable(on_sifirla):
+                    on_sifirla()
+
+            def _devam():
+                dialog_window.destroy()
+                if callable(on_devam):
+                    on_devam()
+
+            ctk.CTkButton(
+                btn_frame, text="🔄 Havuzu Sıfırla", command=_sifirla,
+                font=ctk.CTkFont(size=13, weight="bold"), width=160, height=38,
+                fg_color="#e67e22", hover_color="#ca6f1e"
+            ).pack(side="left", padx=8)
+
+            # Kalan soru varsa "Devam Et" butonu göster
+            if not hic_kalmadi:
+                ctk.CTkButton(
+                    btn_frame, text="▶ Mevcut Kadarıyla Devam", command=_devam,
+                    font=ctk.CTkFont(size=13, weight="bold"), width=190, height=38,
+                    fg_color="#2980b9", hover_color="#2471a3"
+                ).pack(side="left", padx=8)
+
+        except Exception as e:
+            self.logger.error(f"Kalıcı havuz dialog hatası: {e}", exc_info=True)
+            if callable(on_devam):
+                on_devam()

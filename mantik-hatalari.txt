@@ -1,0 +1,112 @@
+answer_utils , file_manager , onizleme_cizici
+dosyalarındaki olası hatalar
+
+
+onizleme_cizici.py dosyasındaki _create_test_preview_BestFit fonksiyonunda çok sinsi bir mantık hatası var.
+
+try:
+    soru_img = Image.open(soru_info['path'])
+    # resmi çizdir...
+except Exception as e:
+    self.logger.error(f"PIL Gorsel cizim hatasi: {soru_info['path']}", exc_info=True)
+    continue # <-- DİKKAT!
+
+
+Sorun Neden Kaynaklanıyor?
+Eğer resimlerden biri bozuksa veya o an okunamazsa, kod continue diyerek o resmi atlıyor. Ancak continue dediği için alt satırlardaki Y koordinatını güncelleyen ve yerlestirildi_sayaci += 1 diyen kısımları da atlamış oluyor.
+
+Sonuç: Ekranda 5 soru olması gerekirken 4 soru görünür. Soru numaraları kayar (3. soru bozuksa, 4. soruya "3." yazar).
+
+Asıl Facia: Önizleme ekranı resmi atlarken, arka plandaki OturumYoneticisi (secilen_gorseller listesi) o resmi silmez. Sen PDF'i oluştur dediğinde, cevap anahtarı ile sorular birbirine girer!
+
+🧹 2. Mimari Çatlak: "DRY (Kendini Tekrar Etme)" İhlali
+Farklı dosyalarda tamamen aynı işi yapan, birebir aynı kodları kopyalamışsın.
+
+answer_utils.py dosyasının en altında bir set_log_level(level) fonksiyonu var.
+
+file_manager.py dosyasının içinde de tamamen aynı set_log_level(level) fonksiyonu var.
+
+Sorun Nedir?
+Eğer ileride loglama sistemine yeni bir seviye (örneğin 'CRITICAL') eklemek istersen, gidip projeyi tarayıp bu fonksiyonun olduğu her yeri tek tek değiştirmen gerekir. Bu kodları logger_config.py gibi tek bir merkezde toplayıp diğer dosyalara oradan import etmelisin.
+
+🎨 3. Refactoring (Kod Temizliği) Fırsatı: Font Yükleme Hamallığı
+onizleme_cizici.py dosyasında font yüklerken ana font (Arial) ve yedek font (Calibri) mantığı kurmuşsun. Bu çok güvenli ve güzel bir düşünce. Fakat şu blok, dosyanın içinde 3 farklı yerde tekrar ediyor:
+
+try:
+    font = ImageFont.truetype(self.font_path_bold, 24)
+except Exception:
+    try:
+        font = ImageFont.truetype(self.font_path_bold_fallback, 24)
+    except:
+        font = ImageFont.load_default()
+
+Çözüm: OnizlemeCizici sınıfına _get_font(self, is_bold=False, size=24) diye tek bir yardımcı fonksiyon yazarsan, dosyanın satır sayısını ciddi şekilde azaltır ve okumayı çok kolaylaştırırsın.
+
+4. Küçük Bir Edge-Case (Uç Durum) İhtimali
+answer_utils.py içinde TEST modu için dosya adından cevap çekerken sağdan rsplit('-', 1) kullanıyorsun. Bu, 1-A.png için A sonucunu kusursuzca veriyor.
+Ancak bir kullanıcı (veya sen) görselleri isimlendirirken yanlışlıkla soru-1-A-cevap.png gibi bir format kullanırsa, sistem cevabı CEVAP olarak alacaktır. Bu bir hata değil, algoritmanın tasarımı böyle ama aklının bir köşesinde bulunmasında fayda var.
+
+pdf_generator ve resim_yonetimi_beyni dosyasındaki mantık hataları
+
+👻 1. Mimari Çatlak: "Hayalet Veri" (Yazılı vs Test Tutarsızlığı)
+Projenin beyninde "Test" ve "Yazılı" için iki tamamen farklı kurallar silsilesi işliyor.
+
+"Test" seçtiğinde pdf_generator.py resimleri mükemmel bir şekilde analiz edip boyutlarını hesaplıyor ve bunu bir haritaya (sayfa_haritasi) kaydediyor.
+
+Fakat "Yazılı" seçtiğinde ne oluyor biliyor musun? oturum_yoneticisi.py ve pdf_generator.py içinde şu kod var:
+{'index': i, 'path': path, 'total_height': 500, 'final_size': (500, 400)}
+Yazılı modunda sistem resimleri analiz etmeye üşeniyor ve hepsine sahte/hayalet bir (500, 400) boyutu uydurup listeye atıyor. Sonra çizim aşamasına gelindiğinde hem onizleme_cizici.py hem de pdf_generator.py bu sahte veriye güvenmediği için resimleri ikinci kez açıp boyutlarını sıfırdan hesaplamak zorunda kalıyor. Bu durum, kodun çalışma mantığını çok karmaşıklaştırıyor.
+
+👯‍♂️ 2. Kopyala-Yapıştır Hatası: Çift Görme
+resim_yonetimi_beyni.py dosyasını incelerken ilginç bir şey fark ettim. _has_subfolders(self, folder_path: str) isimli fonksiyon, aynı sınıf (ResimYonetimiBeyni) içinde iki kez (170. ve 269. satırlarda) tamamen aynı kodlarla alt alta yazılmış. Python hata vermez, en son okuduğunu geçerli sayar ama bu kod kalabalığıdır, temizlenmesi gerekir.
+
+💣 3. Patlamaya Hazır Saatli Bomba: Bellek Sızıntısı (Memory Leak) Riski
+resim_yonetimi_beyni.py içinde, arayüzde gösterilen resimlerin küçük hallerini (thumbnail) hızlı yüklemek için bir self._thumb_cache = {} sözlüğü kullanmışsın. Bu harika bir fikir!
+Ancak sorun şu: Bu sözlüğün bir sınırı yok. Kullanıcı programı açıp 500-1000 tane soru arasında gezinirse, program o 1000 resmin de verisini RAM'de tutmaya devam edecek ve bir süre sonra bilgisayar kasmaya başlayıp program çökecektir. (Buna yazılımda Memory Leak denir). Buraya "En fazla son 50 resmi aklında tut" gibi bir sınır (LRU Cache mantığı) eklenmeli.
+
+🧟‍♂️ 4. Zombi Kodlar (Ölü Fonksiyonlar)
+pdf_generator.py dosyasının içinde create_template_page ve _create_yazili_layout adında çok uzun fonksiyonlar var. Fakat bir dedektif gibi kaydet fonksiyonunun içini izlediğimde, bu fonksiyonların hiçbir zaman çağrılmadığını gördüm! Sen projeyi güncelleyip _create_yazili_layout_simple fonksiyonunu yazmışsın ve onu kullanmaya başlamışsın, ama eski versiyonları silmeyi unutmuşsun. Bu zombi kodlar dosyayı boş yere 100 satır uzatıyor.
+
+
+En son genel hatalar 
+
+1. Soru Kayması ve Cevap Anahtarı Uyuşmazlığı (Senkronizasyon Kaybı)
+İlgili Dosyalar: onizleme_cizici.py ve pdf_generator.py
+
+İlgili Fonksiyonlar: _create_test_preview_BestFit ve _create_working_test_layout
+
+Neden Bir Sorun?: Soru görüntülerini diskten okuyup sayfaya (veya önizlemeye) çizerken, resmin bozuk olması veya bulunamaması durumunda try-except bloğu hatayı yakalıyor. Ancak hata yakalandığında continue komutu çalışıyor. Bu komut, döngünün alt kısmında yer alan "Sıradaki sorunun Y koordinatını hesapla" ve "Yerleştirilen soru sayacını (+1) artır" adımlarını atlıyor. Sonuç olarak; ekranda bir boşluk oluşmuyor, arkadan gelen soru hatalı sorunun yerine kayıyor ve en kötüsü, PDF çıktısındaki soru sırası ile cevap anahtarındaki soru sırası birbirine giriyor.
+
+🍝 2. Mimari İhlal: UI ve İş Mantığının Birbirine Girmesi (Spagetti Kod)
+İlgili Dosyalar: dialog_yoneticisi.py ve oturum_yoneticisi.py
+
+İlgili Fonksiyonlar: show_havuz_tukendi_dialog (UI) ve gorseli_guncelle_new (Beyin)
+
+Neden Bir Sorun?: MVC (Model-View-Controller) mimarisinde arayüz (Dialog) sadece veriyi gösterir ve kullanıcıdan onay alır; arka plandaki veriyi doğrudan değiştiremez. Ancak senin dialog yöneticin, soru havuzu bittiğinde self.parent_ui.kullanilan_sorular[konu_adi] = set() diyerek doğrudan beynin içindeki hafızayı (state) siliyor. Ayrıca, oturum_yoneticisi.py dosyasında kendi yazdığın uyarıda belirttiğin gibi, UI'ın doğrudan beyni tetiklemeye çalışması döngü (loop) riskleri barındırıyor. Kod şu an şans eseri çalışıyor ama sistem büyüdükçe bu doğrudan müdahaleler projeyi çok kırılgan hale getirecektir.
+
+💣 3. Sınırsız Önbellek Büyümesi (Memory Leak / Bellek Sızıntısı)
+İlgili Dosyalar: resim_yonetimi_beyni.py
+
+İlgili Fonksiyonlar: __init__ ve get_pil_thumbnail
+
+Neden Bir Sorun?: Resim seçme ekranında hızlı yükleme yapmak için self._thumb_cache = {} adında bir sözlük (dictionary) tanımlamışsın. Kullanıcı klasörler arasında gezindikçe, gördüğü her resmin PIL.Image objesi bu sözlüğe ekleniyor. Sorun şu ki; bu sözlüğün bir limiti yok veya temizlenme (eviction) kuralı yok. Kullanıcı 1000 soruya bakıp o pencereyi kapatsa bile, arka planda o 1000 resim RAM'i işgal etmeye devam edecek. Uzun süreli kullanımlarda uygulamanın aniden çökmesine (Out of Memory) neden olacak bir mimari eksiklik.
+
+👻 4. "Hayalet Veri" ve İki Kere İşlem Yapma (Yazılı Modu Tutarsızlığı)
+İlgili Dosyalar: oturum_yoneticisi.py, pdf_generator.py ve onizleme_cizici.py
+
+İlgili Fonksiyonlar: _planlama_ve_ui / _replan_and_refresh_ui, _create_yazili_preview, _create_yazili_layout_simple
+
+Neden Bir Sorun?: "Test" modunda pdf_generator.py, resimlerin gerçek boyutlarını hesaplayıp bir sayfa haritası çıkarıyor. Ancak "Yazılı" modunda, planlayıcı algoritma resimleri okumaya üşenip {'final_size': (500, 400)} şeklinde sahte/hayalet bir veri üretiyor. Çizici fonksiyonlar (onizleme_cizici ve pdf_generatorın kendi içindeki yazılı layout'u) bu sahte veriye güvenemedikleri için, çizim sırasında resimleri diskten tekrar okuyup kendi en-boy hesaplamalarını (soru_img.width / soru_img.height) sıfırdan yapıyorlar. Bu, hem gereksiz disk okuması (I/O) yaptırıyor hem de modüllerin birbirine olan güvenini (interface sözleşmesini) kırıyor.
+
+👯‍♂️ 5. Kopyala-Yapıştır ve Ölü Kodlar (Maintainability / Bakım Zorluğu)
+İlgili Dosyalar: answer_utils.py, file_manager.py, resim_yonetimi_beyni.py, pdf_generator.py
+
+İlgili Fonksiyonlar: set_log_level, _has_subfolders, create_template_page, _create_yazili_layout
+
+Neden Bir Sorun?:
+
+set_log_level fonksiyonu iki farklı dosyaya birebir kopyalanmış. İleride loglama altyapısını değiştirirsen iki yeri de bulup düzeltmen gerekecek.
+
+_has_subfolders fonksiyonu aynı dosya (resim_yonetimi_beyni.py) içinde iki kere tanımlanmış.
+
+pdf_generator.py içinde yer alan create_template_page ve _create_yazili_layout fonksiyonları, sen yeni fonksiyonlar (_create_yazili_layout_simple vb.) yazdığın için artık sistemin hiçbir yerinden çağrılmıyor (Zombi kod). Dosyayı gereksiz yere şişiriyor ve okumayı zorlaştırıyor.
