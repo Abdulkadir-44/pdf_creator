@@ -396,23 +396,16 @@ class OturumYoneticisi:
                         return
                     else:
                         self.logger.info(f"'{mevcut_konu}' için havuz tükendi. Reset dialogu gösteriliyor.")
-                        # DİKKAT: 'gorseli_guncelle_new' UI'a ait DEĞİL.
-                        # DialogYoneticisi'nin bunu çağırması HATALIYDI.
-                        # Artık 'show_havuz_tukendi_dialog'un callback'i 
-                        # 'self.gorseli_guncelle_new_callback' olmalı.
-                        # ŞİMDİLİK İŞLEVSELLİĞİ KORUYORUZ:
-                        # DialogYoneticisi hala controller'daki 'gorseli_guncelle_new'i çağıracak,
-                        # o da burayı (oturum_yoneticisi.gorseli_guncelle_new) çağıracak.
-                        # Bu bir döngüye neden olabilir.
-                        # DÜZELTME: 'show_havuz_tukendi_dialog'un mantığını buraya taşıyalım.
-                        
-                        # (NOT: 'show_havuz_tukendi_dialog'un mantığı 'DialogYoneticisi'nde
-                        #  'self.parent_ui.gorseli_guncelle_new(index)' olarak kaldı.
-                        #  Bu, 'controller.gorseli_guncelle_new(index)'i çağıracak,
-                        #  o da 'oturum_yoneticisi.gorseli_guncelle_new(index)'i çağıracak.
-                        #  Sorun yok, döngü oluşmaz, çünkü dialog sadece BİR KEZ çağrılır.)
-                        
-                        self.dialog_yoneticisi.show_havuz_tukendi_dialog(mevcut_konu, index)
+
+                        def _sifirla_ve_guncelle():
+                            # State değişikliği BEYINDE yapılır, dialog'da değil
+                            kullanilan_sorular[mevcut_konu] = set()
+                            self.logger.info(f"'{mevcut_konu}' önizleme havuzu sıfırlandı.")
+                            self.gorseli_guncelle_new(index)
+
+                        self.dialog_yoneticisi.show_havuz_tukendi_dialog(
+                            mevcut_konu, on_sifirla=_sifirla_ve_guncelle
+                        )
                         return
     
                 yeni_gorsel_dosya = random.choice(kullanilmamis_gorseller)

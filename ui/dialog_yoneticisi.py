@@ -303,8 +303,8 @@ class DialogYoneticisi:
             if callable(on_confirm_callback):
                 on_confirm_callback()
                 
-    def show_havuz_tukendi_dialog(self, konu_adi, index):
-        """Havuz tükendiğinde kullanıcıya sor"""
+    def show_havuz_tukendi_dialog(self, konu_adi, on_sifirla, on_iptal=None):
+        """Havuz tükendiğinde kullanıcıya sor — sadece UI, state'e dokunmaz."""
 
         dialog_window = ctk.CTkToplevel(self.master)
         dialog_window.title("Soru Havuzu Tükendi")
@@ -333,26 +333,25 @@ class DialogYoneticisi:
         button_frame = ctk.CTkFrame(dialog_window, fg_color="transparent")
         button_frame.pack(pady=20)
 
-        def sifirla_ve_guncelle():
-            # Havuzu sıfırla
-            # DİKKAT: Ana sınıfın 'kullanilan_sorular' özelliğini değiştiriyoruz
-            self.parent_ui.kullanilan_sorular[konu_adi] = set() 
+        def _sifirla():
             dialog_window.destroy()
-            # DİKKAT: Ana sınıfın metodunu çağırıyoruz
-            self.parent_ui.gorseli_guncelle_new(index) 
+            if callable(on_sifirla):
+                on_sifirla()
 
-        def iptal():
+        def _iptal():
             dialog_window.destroy()
+            if callable(on_iptal):
+                on_iptal()
 
         evet_btn = ctk.CTkButton(
-            button_frame, text="Evet, Sıfırla", command=sifirla_ve_guncelle,
+            button_frame, text="Evet, Sıfırla", command=_sifirla,
             font=ctk.CTkFont(size=14, weight="bold"), width=120, height=40,
             fg_color="#28a745", hover_color="#218838"
         )
         evet_btn.pack(side="left", padx=10)
 
         hayir_btn = ctk.CTkButton(
-            button_frame, text="Hayır", command=iptal,
+            button_frame, text="Hayır", command=_iptal,
             font=ctk.CTkFont(size=14, weight="bold"), width=80, height=40,
             fg_color="#6c757d", hover_color="#5a6268"
         )
