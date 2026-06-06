@@ -31,7 +31,11 @@ class AnaPencere(ctk.CTk):
 
         # Sayfaları depolayacağımız bir dictionary
         self.frames = {}
-        
+
+        # Oturum boyunca PDF'e basılan soruların havuzu.
+        # SoruParametre frame'i destroy/recreate edilse de bu hayatta kalır.
+        self.kalici_kullanilan = {}
+
         # Sabit sayfaları oluştur
         self.init_frames()
 

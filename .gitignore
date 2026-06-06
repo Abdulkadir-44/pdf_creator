@@ -1,7 +1,6 @@
 # Build artefaktları (PyInstaller)
 build/
 dist/
-*.spec
 
 # Python cache
 __pycache__/
@@ -24,3 +23,8 @@ logs/
 Thumbs.db
 
 installer_output/
+
+# Claude Code
+.claude/
+
+.python-version

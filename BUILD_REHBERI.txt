@@ -1,0 +1,114 @@
+================================================================
+SORU OTOMASYON SİSTEMİ — BUILD VE KURULUM OLUŞTURMA REHBERİ
+================================================================
+
+GEREKLI ARAÇLAR
+---------------
+- pyenv-win       : Birden fazla Python sürümü yönetimi
+- PyInstaller     : Python projesini .exe'ye dönüştürme
+- Inno Setup 6    : .exe'den kurulum sihirbazı oluşturma
+
+
+PYTHON SÜRÜM BİLGİSİ
+---------------------
+- Windows 11 için : Python 3.14.2
+- Windows 7 için  : Python 3.9.13 (7'yi destekleyen son sürüm)
+
+
+KURULU PYTHON SÜRÜMLERINI GÖRME
+--------------------------------
+  pyenv versions
+
+
+PYENV İLE PYTHON KURMA
+-----------------------
+  pyenv install 3.9.13
+  pyenv install 3.14.2
+
+
+================================================================
+ADIM ADIM BUILD ALMA
+================================================================
+
+1. PROJE KLASÖRÜNE GİT
+-----------------------
+  cd "C:\Users\Abdulkadir\Desktop\pdf_creator"
+
+
+2. WINDOWS 7 EXE'Sİ OLUŞTUR
+-----------------------------
+  a) Python 3.9'a geç:
+     pyenv local 3.9.13
+
+  b) Doğrula:
+     python --version  →  Python 3.9.13 yazmalı
+
+  c) Kütüphaneleri kur (ilk seferinde):
+     pip install -r requirements.txt
+     pip install pyinstaller
+
+  d) Exe üret:
+     pyinstaller main.spec
+     (Çıktı: dist\main.exe)
+
+  e) Dosyayı yeniden adlandır:
+     Rename-Item "dist\main.exe" "main_win7.exe"
+
+
+3. WINDOWS 11 EXE'Sİ OLUŞTUR
+------------------------------
+  a) main.spec dosyasında name değerini güncelle:
+     name='main_win11'
+
+  b) Python 3.14'e geç:
+     pyenv local 3.14.2
+
+  c) Doğrula:
+     python --version  →  Python 3.14.2 yazmalı
+
+  d) Exe üret:
+     pyinstaller main.spec
+     (Çıktı: dist\main_win11.exe)
+
+
+4. KURULUM SİHİRBAZLARINI OLUŞTUR (Inno Setup)
+------------------------------------------------
+  a) Inno Setup'ı aç
+  b) File → Open → setup_win7.iss seç → F9 ile derle
+     (Çıktı: installer_output\Setup_Win7.exe)
+
+  c) File → Open → setup_win11.iss seç → F9 ile derle
+     (Çıktı: installer_output\Setup_Win11.exe)
+
+
+================================================================
+MÜŞTERİYE VERİLECEK DOSYALAR
+================================================================
+
+  - Windows 7  kullananlar için : Setup_Win7.exe
+  - Windows 11 kullananlar için : Setup_Win11.exe
+
+NOT: Müşteri hangi Windows kullandığını bilmiyorsa
+     Setup_Win7.exe'yi ver — daha geniş uyumlu.
+
+
+================================================================
+PROJE BAĞIMLILIKLARI (requirements.txt)
+================================================================
+
+  pip install -r requirements.txt
+
+  Kütüphaneler:
+  - customtkinter  : Arayüz
+  - Pillow         : Görsel işleme
+  - reportlab      : PDF oluşturma
+
+
+================================================================
+PROJEYI DOĞRUDAN ÇALIŞTIRMA (kurulum olmadan)
+================================================================
+
+  python main.py
+
+
+================================================================

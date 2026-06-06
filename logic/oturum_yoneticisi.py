@@ -91,9 +91,7 @@ class OturumYoneticisi:
         - kalici_kullanilan: Oturum havuzu (sadece PDF'e basılanlar, sıfırlanmaz)
         """
         try:
-            # 1. OTURUM HAVUZU (kalici) — oturum boyunca sıfırlanmaz
-            if not hasattr(self.controller, 'kalici_kullanilan'):
-                self.controller.kalici_kullanilan = {}
+            # 1. OTURUM HAVUZU (kalici) — AnaPencere'de yaşar, sıfırlanmaz
             kalici_ref = self.controller.kalici_kullanilan
 
             # 2. ÖNİZLEME HAVUZUNU SIFIRLA — her yeni PDF için taze başlangıç
@@ -347,10 +345,17 @@ class OturumYoneticisi:
                 zorluk = self.controller.zorluk_var.get()
                 konu_path = self.controller.secilen_konular[mevcut_konu]
                 klasor_yolu = os.path.join(konu_path, soru_tipi.lower(), zorluk.lower())
-    
-                tum_gorseller = [f for f in os.listdir(klasor_yolu) 
+
+                if not os.path.exists(klasor_yolu):
+                    self.dialog_yoneticisi.show_error(
+                        f"Klasör bulunamadı:\n{klasor_yolu}\n\n"
+                        "Dosyalar silinmiş veya taşınmış olabilir."
+                    )
+                    return
+
+                tum_gorseller = [f for f in os.listdir(klasor_yolu)
                                if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))]
-    
+
                 if not tum_gorseller:
                     self.dialog_yoneticisi.show_error("Güncellenecek görsel bulunamadı!")
                     return
@@ -535,8 +540,6 @@ class OturumYoneticisi:
                             self.logger.info(f"PDF başarıyla oluşturuldu: {os.path.basename(cikti_dosya)}")
                             
                             # KALICI HAVUZA COMMIT — sadece PDF'e basılan sorular
-                            if not hasattr(self.controller, 'kalici_kullanilan'):
-                                self.controller.kalici_kullanilan = {}
                             for gorsel_path in self.controller.secilen_gorseller:
                                 konu = self.find_topic_from_path(gorsel_path)
                                 if konu:

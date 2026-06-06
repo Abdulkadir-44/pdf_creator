@@ -59,12 +59,15 @@ class SoruParametresiSecmePenceresi(ctk.CTkFrame):
         self.logger = self._setup_logger()
         self.logger.info(f"SoruParametresiSecmePenceresi başlatıldı - Ders: {ders_adi}, Konu sayısı: {len(self.secilen_konular)}")
         
-        # Oturum bazlı kullanılan sorular takibi
-        self.kullanilan_sorular = {}  # {konu_adi: set()} format
-
-        # Kullanılan soruları başlat
+        # Önizleme havuzu — her yeni PDF seçiminde sıfırlanır
+        self.kullanilan_sorular = {}
         for konu_adi in self.secilen_konular.keys():
             self.kullanilan_sorular[konu_adi] = set()
+
+        # Kalıcı havuz — AnaPencere'de yaşar, frame destroy edilse de korunur
+        if not hasattr(self.controller, 'kalici_kullanilan'):
+            self.controller.kalici_kullanilan = {}
+        self.kalici_kullanilan = self.controller.kalici_kullanilan
         
         # Dialog Yöneticisini BAŞLAT (UI'dan ÖNCE)
         self.dialog_yoneticisi = DialogYoneticisi(self)
